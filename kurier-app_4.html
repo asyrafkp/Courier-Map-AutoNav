@@ -10,6 +10,7 @@
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="tesseract/tesseract.min.js"></script>
 <script>
 // Detect native TextDetector API (Google Lens OCR engine)
 window._hasNativeOcr = typeof TextDetector !== 'undefined';
@@ -1168,6 +1169,41 @@ async function detectTextNative(canvas){
   }
 }
 
+// Run Tesseract.js with self-hosted files (same repo)
+async function runTesseractSelfHosted(canvas, statusLabel, previewBar){
+  if(typeof Tesseract === 'undefined'){
+    throw new Error('Tesseract.js tidak dimuatkan');
+  }
+  // Absolute path ke folder tesseract/ dalam repo
+  var base = window.location.href.replace(/\/[^/]*$/, '/') + 'tesseract/';
+
+  if(statusLabel) statusLabel.textContent = '⏳ Menyediakan OCR Tesseract...';
+  var worker = await Tesseract.createWorker('eng', {
+    workerPath: base + 'worker.min.js',
+    corePath: base,
+    langPath: base,
+    logger: function(m){
+      var bar = document.getElementById('ocr-progress-bar');
+      var label = document.getElementById('ocr-progress-label');
+      var pct = 0, msg = '';
+      if(m.status === 'loading tesseract core'){ pct=5; msg='Memuatkan enjin OCR...'; }
+      else if(m.status === 'initializing tesseract'){ pct=10; msg='Inisialisasi OCR...'; }
+      else if(m.status === 'loading language traineddata'){ pct=25; msg='Muat turun data bahasa...'; }
+      else if(m.status === 'initializing api'){ pct=40; msg='Sedia...'; }
+      else if(m.status === 'recognizing text'){ pct=Math.round(50 + m.progress*45); msg='Mengecam teks... '+Math.round(m.progress*100)+'%'; }
+      else if(m.status === 'done'){ pct=100; msg='Selesai!'; }
+      if(bar) bar.style.width = pct + '%';
+      if(label) label.textContent = msg;
+      if(previewBar) previewBar.style.width = pct + '%';
+      if(statusLabel && msg) statusLabel.textContent = '⏳ ' + msg;
+    }
+  });
+  if(statusLabel) statusLabel.textContent = '⏳ Menganalisa imej...';
+  var result = await worker.recognize(canvas);
+  try{ worker.terminate(); }catch(e){}
+  return result.data.text;
+}
+
 function stopOcrStream(){
   if(ocrStream){ ocrStream.getTracks().forEach(function(t){ t.stop(); }); ocrStream = null; }
 }
@@ -1256,7 +1292,14 @@ async function processOcrCanvas(canvas, source){
   if(previewBar) previewBar.style.width = '0%';
 
   try{
+    // 1. Try native Shape Detection API (Google Lens)
     var text = await detectTextNative(canvas);
+
+    // 2. Fallback: self-hosted Tesseract.js
+    if(!text || !text.trim()){
+      if(statusLabel) statusLabel.textContent = '⏳ Native OCR gagal, guna Tesseract...';
+      text = await runTesseractSelfHosted(canvas, statusLabel, previewBar);
+    }
 
     if(!text || !text.trim()){
       throw new Error('OCR tak dapat baca teks. Cuba gambar lebih jelas.');
