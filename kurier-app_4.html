@@ -1243,17 +1243,94 @@ async function processOcrCanvas(canvas){
   }
 }
 
+/* =============== OCR PARSING (Address + Multi-Parcel) =============== */
+function formatAddress(raw){
+  return raw
+    .replace(/\bno\s*(\d)/gi, 'No $1')
+    .replace(/\b(lorong|jalan|taman|kampung|desa|perumahan|blok|seksyen|simpang|batu)\b/gi, function(m){ return ', ' + m.charAt(0).toUpperCase() + m.slice(1).toLowerCase(); })
+    .replace(/\b([a-z]+)(\d+)\b/gi, '$1 $2')
+    .replace(/^,\s*/, '')
+    .replace(/\s+,/g, ',')
+    .replace(/,+/g, ',')
+    .trim();
+}
+
+function parseOcrText(text){
+  var rawLines = text.split('\n').map(function(l){ return l.trim(); });
+  var lines = rawLines.filter(function(l){
+    return l.length > 2 && !/^\[?ICON/i.test(l) && !/^(kad|card)\s*\d/i.test(l);
+  });
+  if(!lines.length) return null;
+
+  // Detect tracking number: 10+ consecutive digits
+  var trackingIdx = -1;
+  lines.forEach(function(l, i){
+    if(/^\d{10,}$/.test(l) && trackingIdx < 0) trackingIdx = i;
+  });
+
+  if(trackingIdx < 0){
+    return { address: lines[0] || '', parcels: [{ recipient: lines[1] || '(OCR)', trackingNo: '-' }] };
+  }
+
+  // Address = all lines before first tracking
+  var address = lines.slice(0, trackingIdx).join(', ');
+  address = address ? formatAddress(address) : '';
+
+  // Parcels = everything from first tracking onwards
+  var parcels = [];
+  var i = trackingIdx;
+  var firstParcelAddr = '';
+  while(i < lines.length){
+    if(!/^\d{10,}$/.test(lines[i])){ i++; continue; }
+    var trk = lines[i]; i++;
+    // Skip extra tracking lines (edge case)
+    while(i < lines.length && /^\d{10,}$/.test(lines[i])) i++;
+    // Recipient name
+    var rec = '';
+    if(i < lines.length && !/^(\*|\d{10,})/.test(lines[i])){
+      rec = lines[i]; i++;
+    }
+    // Skip phone/censored (**** or digits)
+    while(i < lines.length && (/^\*/.test(lines[i]) || /^0?\d{9,11}$/.test(lines[i]))) i++;
+    // Collect address lines until next tracking or end
+    var addrParts = [];
+    while(i < lines.length && !/^\d{10,}$/.test(lines[i])){
+      if(lines[i].length > 2 && !/^\*/.test(lines[i])) addrParts.push(lines[i]);
+      i++;
+    }
+    // First parcel's address fills lot address if empty
+    if(!address && addrParts.length && !firstParcelAddr){
+      firstParcelAddr = addrParts.join(', ');
+    }
+    parcels.push({ recipient: rec || '(OCR)', trackingNo: trk, address: addrParts.join(', ') });
+  }
+
+  if(!parcels.length) parcels.push({ recipient: '(OCR)', trackingNo: '-' });
+  if(!address && firstParcelAddr) address = formatAddress(firstParcelAddr);
+  return { address: address || '(OCR)', parcels: parcels };
+}
+
 document.getElementById('ocr-use-btn').addEventListener('click', function(){
   var text = document.getElementById('ocr-result-text').value;
-  var lines = text.split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l.length > 3; });
+  var parsed = parseOcrText(text);
+  if(!parsed){ showToast('OCR teks kosong', true); return; }
+
   var addressInput = document.getElementById('pin-address');
-  var nameInput = document.querySelector('#pin-form input[placeholder*="Nama"]');
-  if(addressInput && lines[0]) addressInput.value = lines[0];
-  if(nameInput && lines[1]) nameInput.value = lines[1];
+  if(addressInput) addressInput.value = parsed.address;
+
+  // Clear existing parcel rows & fill from parsed data
+  var container = document.getElementById('parcel-rows');
+  if(container){
+    container.innerHTML = '';
+    parsed.parcels.forEach(function(p){
+      addParcelRow(p.recipient, p.trackingNo);
+    });
+  }
+
   document.getElementById('ocr-preview').style.display = 'none';
   document.getElementById('ocr-progress-bar').style.width = '0%';
   document.getElementById('ocr-progress-label').textContent = '';
-  showToast('✅ Alamat diisi dari OCR');
+  showToast('✅ ' + parsed.parcels.length + ' parcel diisi dari OCR');
 });
 
 document.getElementById('ocr-retry-btn').addEventListener('click', function(){
