@@ -11,56 +11,10 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// Multi-CDN fallback loader for Tesseract.js
-(function(){
-  var OCR_CDN_STATUS = 'loading';
-  window.ocrCdnStatus = 'loading';
-  function setStatus(s){ window.ocrCdnStatus = s; OCR_CDN_STATUS = s; updateOcrStatusBadge(); }
-
-  var cdnList = [
-    'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js',
-    'https://unpkg.com/tesseract.js@5/dist/tesseract.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js'
-  ];
-  var cdnIndex = 0;
-
-  function tryNextCdn(){
-    if(cdnIndex >= cdnList.length){
-      setStatus('failed');
-      console.error('Tesseract.js gagal dimuat dari semua CDN');
-      return;
-    }
-    var url = cdnList[cdnIndex++];
-    var el = document.createElement('script');
-    el.src = url;
-    el.onload = function(){
-      // Tunggu sehingga Tesseract global betul-betul wujud
-      var checkLoaded = setInterval(function(){
-        if(typeof Tesseract !== 'undefined'){
-          clearInterval(checkLoaded);
-          if(typeof Tesseract.version === 'function'){
-            try { window._ocrVer = Tesseract.version(); } catch(e){ window._ocrVer = '?'; }
-          } else if(Tesseract.version) {
-            window._ocrVer = Tesseract.version;
-          }
-          setStatus('ready');
-          window._ocrCdnLoaded = true;
-        }
-      }, 200);
-      setTimeout(function(){ clearInterval(checkLoaded); }, 5000);
-    };
-    el.onerror = function(){
-      console.warn('CDN gagal: ' + url);
-      tryNextCdn();
-    };
-    document.head.appendChild(el);
-  }
-
-  tryNextCdn();
-  // Jika selepas 15s masih loading, set sebagai failed
-  setTimeout(function(){ if(OCR_CDN_STATUS === 'loading') setStatus('failed'); }, 15000);
-  window.updateOcrStatusBadge = function(){ /* defined later after DOM ready */ };
-})();
+// Detect native TextDetector API (Google Lens OCR engine)
+window._hasNativeOcr = typeof TextDetector !== 'undefined';
+// Flag untuk lazy-load Tesseract sebagai fallback
+window._tesseractWorker = null;
 </script>
 
 <style>
@@ -556,10 +510,7 @@
   .ocr-progress-bar{height:100%;width:0%;background:var(--jnt-red);transition:width .3s;}
 
   /* OCR OVERLAY */
-  .ocr-status{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:1px 6px;border-radius:8px;white-space:nowrap;margin-left:4px;vertical-align:middle;}
-  .ocr-status.loading{background:#fff3cd;color:#856404;}
-  .ocr-status.ready{background:#d4edda;color:#155724;}
-  .ocr-status.failed{background:#f8d7da;color:#721c24;}
+  .ocr-native-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:1px 6px;border-radius:8px;white-space:nowrap;margin-left:4px;vertical-align:middle;background:#d4edda;color:#155724;}
   .ocr-overlay{display:none;position:fixed;inset:0;z-index:9999;background:#000;}
   .ocr-overlay video{width:100%;height:100%;object-fit:cover;}
   .ocr-frame{position:absolute;top:50%;left:10%;right:10%;height:120px;border:3px dashed rgba(255,255,255,.7);border-radius:12px;transform:translateY(-60%);box-shadow:0 0 0 9999px rgba(0,0,0,.5);pointer-events:none;}
@@ -681,7 +632,7 @@
         <label>Alamat / Nota Lot *</label>
         <textarea id="pin-address" placeholder="cth: No 12, Lorong Melur 3, rumah pagar hijau"></textarea>
         <div style="display:flex;gap:6px;margin-top:4px;align-items:center;">
-          <button class="btn outline small" id="ocr-camera-btn" style="flex:1;padding:8px;">📷 Scan Alamat <span class="ocr-status loading" id="ocr-cdn-badge">⏳</span></button>
+          <button class="btn outline small" id="ocr-camera-btn" style="flex:1;padding:8px;">📷 Scan Alamat <span class="ocr-native-badge" id="ocr-native-label"></span></button>
           <button class="btn outline small" id="ocr-gallery-btn" style="flex:1;padding:8px;">🖼️ Import Gambar</button>
         </div>
         <div id="ocr-init-status" style="font-size:11px;color:var(--muted);text-align:center;margin-top:2px;min-height:16px;"></div>
@@ -1194,96 +1145,72 @@ function stopGeofence(){
   geofenceTriggered.clear();
 }
 
-/* =============== OCR SCAN (Tesseract.js - Multi-CDN + Fallback) =============== */
-let ocrWorker = null;
+/* =============== NATIVE OCR + Tesseract Fallback =============== */
 let ocrStream = null;
-var OCR_WORKER_BUSY = false;
-var OCR_INIT_START = 0;
-var OCR_LAST_PROGRESS = 0;
+var _tesseractPromise = null;
 
-// Status badge updater (defined now that DOM is ready)
-window.updateOcrStatusBadge = function(){
-  var badge = document.getElementById('ocr-cdn-badge');
-  var txt = document.getElementById('ocr-init-status');
-  if(!badge) return;
-  var s = window.ocrCdnStatus || 'loading';
-  badge.className = 'ocr-status ' + s;
-  if(s === 'loading'){
-    badge.textContent = '⏳';
-    if(txt) txt.textContent = 'OCR sedang dimuat turun...';
-  } else if(s === 'ready'){
-    badge.textContent = '✓';
-    if(txt) txt.textContent = 'OCR sedia';
-  } else {
-    badge.textContent = '❌';
-    if(txt) txt.textContent = 'OCR gagal dimuat. Guna import manual di bawah.';
+// Detect text using native Shape Detection API (Google Lens engine)
+async function detectTextNative(canvas){
+  if(typeof TextDetector === 'undefined') return null;
+  try{
+    var detector = new TextDetector();
+    var texts = await detector.detect(canvas);
+    if(!texts || !texts.length) return null;
+    // Sort: top→bottom, then left→right
+    var sorted = texts.slice().sort(function(a,b){
+      var ydiff = a.boundingBox.y - b.boundingBox.y;
+      if(Math.abs(ydiff) > 20) return ydiff;
+      return a.boundingBox.x - b.boundingBox.x;
+    });
+    return sorted.map(function(t){ return t.rawValue; }).join('\n');
+  }catch(e){
+    return null;
   }
-};
-
-// Poll CDN status and update badge
-setInterval(function(){ updateOcrStatusBadge(); }, 1000);
-
-async function getOcrWorker(){
-  if(window.ocrCdnStatus === 'failed'){
-    throw new Error('OCR gagal dimuat dari internet. Cuba refresh/tukar data atau guna import manual.');
-  }
-  if(window.ocrCdnStatus === 'loading'){
-    throw new Error('OCR masih dimuat turun. Cuba semula dalam beberapa saat.');
-  }
-
-  while(!ocrWorker){
-    if(OCR_WORKER_BUSY){
-      await new Promise(function(r){ setTimeout(r, 500); });
-      continue;
-    }
-    OCR_WORKER_BUSY = true;
-    var initMsg = document.getElementById('ocr-init-status');
-    if(initMsg) initMsg.textContent = '⏳ Menyediakan OCR...';
-    try{
-      var workerPromise = Tesseract.createWorker('eng', { logger: function(m){ return updateOcrProgress(m); } });
-      var timeoutPromise = new Promise(function(_, reject){
-        setTimeout(function(){ reject(new Error('Muat turun OCR terlalu lama. Cuba WiFi/tukar data.')); }, 30000);
-      });
-      ocrWorker = await Promise.race([workerPromise, timeoutPromise]);
-      if(initMsg) initMsg.textContent = '✓ OCR sedia';
-    }finally{
-      OCR_WORKER_BUSY = false;
-    }
-  }
-  return ocrWorker;
 }
 
-function updateOcrProgress(m){
-  OCR_LAST_PROGRESS = Date.now();
-  var bar = document.getElementById('ocr-progress-bar');
-  var label = document.getElementById('ocr-progress-label');
-  var previewBar = document.getElementById('ocr-preview-bar');
-  var statusLabel = document.getElementById('ocr-preview-status');
-  var pct = 0, msg = '';
-  if(m.status === 'loading tesseract core'){ pct=5; msg='Memuatkan enjin OCR...'; }
-  else if(m.status === 'initializing tesseract'){ pct=10; msg='Inisialisasi OCR...'; }
-  else if(m.status === 'loading language traineddata'){ pct=25; msg='Muat turun data bahasa...'; }
-  else if(m.status === 'initializing api'){ pct=40; msg='Sedia...'; }
-  else if(m.status === 'recognizing text'){ pct=Math.round(50 + m.progress*45); msg='Mengecam teks... '+Math.round(m.progress*100)+'%'; }
-  else if(m.status === 'done'){ pct=100; msg='Selesai!'; }
-  if(bar) bar.style.width = pct + '%';
-  if(label) label.textContent = msg;
-  if(previewBar) previewBar.style.width = pct + '%';
-  if(statusLabel && msg) statusLabel.textContent = '⏳ ' + msg;
+// Lazy-load Tesseract.js as fallback (only if native fails)
+function loadTesseractFallback(){
+  if(_tesseractPromise) return _tesseractPromise;
+  _tesseractPromise = new Promise(function(resolve, reject){
+    var el = document.createElement('script');
+    el.src = 'https://unpkg.com/tesseract.js@5/dist/tesseract.min.js';
+    el.onload = function(){
+      var check = setInterval(function(){
+        if(typeof Tesseract !== 'undefined'){
+          clearInterval(check);
+          resolve();
+        }
+      }, 200);
+      setTimeout(function(){ clearInterval(check); reject(new Error('Tesseract load timeout')); }, 10000);
+    };
+    el.onerror = function(){ reject(new Error('Tesseract CDN gagal dimuat')); };
+    document.head.appendChild(el);
+  });
+  return _tesseractPromise;
 }
 
-// Heartbeat: kalau worker creation lambat, update label manual
-function startOcrHeartbeat(){
-  OCR_LAST_PROGRESS = Date.now();
-  OCR_INIT_START = Date.now();
-  var hb = setInterval(function(){
-    var initMsg = document.getElementById('ocr-init-status');
-    var elapsed = Math.round((Date.now() - OCR_INIT_START) / 1000);
-    if(OCR_WORKER_BUSY && elapsed > 3 && (Date.now() - OCR_LAST_PROGRESS) > 4000){
-      if(initMsg) initMsg.textContent = '⏳ Muat turun OCR... (' + elapsed + 's)';
-    }
-  }, 2000);
-  return hb;
+async function runTesseract(canvas, statusLabel, previewBar){
+  await loadTesseractFallback();
+  if(statusLabel) statusLabel.textContent = '⏳ Menyediakan OCR Tesseract...';
+  var worker = await Tesseract.createWorker('eng', { logger: function(m){
+    var bar = document.getElementById('ocr-progress-bar');
+    var label = document.getElementById('ocr-progress-label');
+    var pct = 0, msg = '';
+    if(m.status === 'loading tesseract core'){ pct=5; msg='Memuatkan enjin OCR...'; }
+    else if(m.status === 'initializing tesseract'){ pct=10; msg='Inisialisasi OCR...'; }
+    else if(m.status === 'loading language traineddata'){ pct=25; msg='Muat turun data bahasa...'; }
+    else if(m.status === 'initializing api'){ pct=40; msg='Sedia...'; }
+    else if(m.status === 'recognizing text'){ pct=Math.round(50 + m.progress*45); msg='Mengecam teks... '+Math.round(m.progress*100)+'%'; }
+    else if(m.status === 'done'){ pct=100; msg='Selesai!'; }
+    if(bar) bar.style.width = pct + '%';
+    if(label) label.textContent = msg;
+    if(previewBar) previewBar.style.width = pct + '%';
+    if(statusLabel && msg) statusLabel.textContent = '⏳ ' + msg;
+  } });
+  if(statusLabel) statusLabel.textContent = '⏳ Menganalisa imej...';
+  var result = await worker.recognize(canvas);
+  try{ worker.terminate(); }catch(e){}
+  return result.data.text;
 }
 
 function stopOcrStream(){
@@ -1294,10 +1221,6 @@ function stopOcrStream(){
 
 // Camera button in pin form: open camera overlay
 document.getElementById('ocr-camera-btn').addEventListener('click', async function(){
-  if(window.ocrCdnStatus === 'failed'){
-    showToast('❌ OCR gagal dimuat. Cuba refresh/tukar data atau guna import manual.', true);
-    return;
-  }
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
     showToast('Kamera tidak disokong. Cuba guna Import Gambar.', true);
     return;
@@ -1341,10 +1264,6 @@ document.getElementById('ocr-close-btn').addEventListener('click', function(){
 
 // Gallery button in pin form
 document.getElementById('ocr-gallery-btn').addEventListener('click', function(){
-  if(window.ocrCdnStatus === 'failed'){
-    showToast('❌ OCR gagal dimuat. Cuba refresh/tukar data atau guna import manual.', true);
-    return;
-  }
   var input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
@@ -1375,21 +1294,27 @@ async function processOcrCanvas(canvas, source){
   var statusLabel = document.getElementById('ocr-preview-status');
   var previewBar = document.getElementById('ocr-preview-bar');
 
-  // Start heartbeat for slow CDN/worker creation
-  var hb = startOcrHeartbeat();
-
   progressDiv.style.display = 'block';
   resultDiv.style.display = 'none';
   preview.style.display = 'block';
-  if(statusLabel) statusLabel.textContent = '⏳ Menyediakan OCR...';
+  if(statusLabel) statusLabel.textContent = '⏳ Mengesan teks...';
   if(previewBar) previewBar.style.width = '0%';
 
   try{
-    var worker = await getOcrWorker();
-    clearInterval(hb);
-    if(statusLabel) statusLabel.textContent = '⏳ Menganalisa imej...';
-    var result = await worker.recognize(canvas);
-    var text = result.data.text;
+    var text = null;
+
+    // 1. Try native Shape Detection API (instant, offline)
+    text = await detectTextNative(canvas);
+
+    // 2. Fallback: Tesseract.js (lazy load from CDN)
+    if(!text){
+      if(statusLabel) statusLabel.textContent = '⏳ Native OCR tiada, guna Tesseract...';
+      text = await runTesseract(canvas, statusLabel, previewBar);
+    }
+
+    if(!text || !text.trim()){
+      throw new Error('OCR tak dapat baca teks. Cuba gambar lebih jelas.');
+    }
 
     if(source === 'camera'){
       preview.style.display = 'none';
@@ -1415,7 +1340,6 @@ async function processOcrCanvas(canvas, source){
       note.textContent = msgs.length ? msgs.join(' · ') : '✅ OCR selesai';
     }
   }catch(e){
-    clearInterval(hb);
     progressDiv.style.display = 'none';
     resultDiv.style.display = 'block';
     document.getElementById('ocr-result-text').value = 'ERROR: ' + e.message + '. TAIP ALAMAT MANUAL DI SINI.';
@@ -2661,13 +2585,19 @@ renderLotList();
 renderTaskSelect();
 renderRouteView();
 
-// Pre-warm OCR worker so first scan is faster
+// Set native OCR status badge on page load
 setTimeout(function(){
-  if(window.ocrCdnStatus === 'ready' && !OCR_WORKER_BUSY){
-    var hb = startOcrHeartbeat();
-    getOcrWorker().then(function(){ clearInterval(hb); }).catch(function(){ clearInterval(hb); });
+  var lbl = document.getElementById('ocr-native-label');
+  if(lbl){
+    if(typeof TextDetector !== 'undefined'){
+      lbl.textContent = '📱';
+      lbl.title = 'OCR Native (Google Lens)';
+    } else {
+      lbl.textContent = '🌐';
+      lbl.title = 'OCR Tesseract (muat turun)';
+    }
   }
-}, 3000);
+}, 500);
 </script>
 </body>
 </html>
