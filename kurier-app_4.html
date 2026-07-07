@@ -1174,11 +1174,20 @@ async function runTesseractSelfHosted(canvas, statusLabel, previewBar){
   if(typeof Tesseract === 'undefined'){
     throw new Error('Tesseract.js tidak dimuatkan');
   }
-  // Absolute path ke folder tesseract/ dalam repo
   var base = window.location.href.replace(/\/[^/]*$/, '/') + 'tesseract/';
 
+  // PRE-FLIGHT: verify all self-hosted files accessible
+  var filesToCheck = ['worker.min.js', 'eng.traineddata.gz', 'tesseract-core.wasm.js'];
+  for(var i = 0; i < filesToCheck.length; i++){
+    var f = filesToCheck[i];
+    if(statusLabel) statusLabel.textContent = '⏳ Memeriksa fail ' + f + '...';
+    var resp = await fetch(base + f, { method: 'HEAD' });
+    if(!resp.ok) throw new Error('Fail ' + f + ' tidak dijumpai (HTTP ' + resp.status + ')');
+  }
+
   if(statusLabel) statusLabel.textContent = '⏳ Menyediakan OCR Tesseract...';
-  var worker = await Tesseract.createWorker('eng', {
+  // FIX: arg 2 = undefined (oem), arg 3 = config (workerPath/corePath/langPath/logger)
+  var workerPromise = Tesseract.createWorker('eng', undefined, {
     workerPath: base + 'worker.min.js',
     corePath: base,
     langPath: base,
@@ -1198,6 +1207,13 @@ async function runTesseractSelfHosted(canvas, statusLabel, previewBar){
       if(statusLabel && msg) statusLabel.textContent = '⏳ ' + msg;
     }
   });
+  // 60s timeout on worker creation
+  var worker = await Promise.race([
+    workerPromise,
+    new Promise(function(_, reject){
+      setTimeout(function(){ reject(new Error('Tesseract worker timeout 60s')); }, 60000);
+    })
+  ]);
   if(statusLabel) statusLabel.textContent = '⏳ Menganalisa imej...';
   var result = await worker.recognize(canvas);
   try{ worker.terminate(); }catch(e){}
