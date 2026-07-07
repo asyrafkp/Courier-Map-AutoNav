@@ -1,9 +1,10 @@
-const CACHE_NAME = 'kurier-cache-v1';
+const CACHE_NAME = 'kurier-cache-v2';
 const URLS_TO_CACHE = [
-  '.',
-  'kurier-app_3.html',
+  'kurier-app_4.html',
+  'manifest.json',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'
 ];
 
 self.addEventListener('install', function(event){
