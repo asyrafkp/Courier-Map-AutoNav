@@ -1,0 +1,2381 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Kurier Route Helper</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#e2231a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+  :root{
+    --jnt-red:#e2231a;
+    --jnt-dark:#b3160f;
+    --bg:#f2f3f5;
+    --card:#ffffff;
+    --text:#1b1b1b;
+    --muted:#6b7280;
+    --border:#e5e7eb;
+    --green:#16a34a;
+    --input-bg:#fafafa;
+  }
+  body.dark{
+    --bg:#121212;
+    --card:#1e1e1e;
+    --text:#f1f1f1;
+    --muted:#9ca3af;
+    --border:#333333;
+    --input-bg:#2a2a2a;
+  }
+  body.dark .banner{background:#3a2a10;border-color:#7c4a03;color:#fbbf24;}
+  body.dark nav.tabs{background:#1e1e1e;}
+  body.dark .checkbox-row, body.dark .route-step{background:var(--card);}
+  body.dark .del-btn{background:#3f1414;color:#fca5a5;}
+  body.dark .locate-btn, body.dark #pin-form-floating{background:var(--card);color:var(--text);}
+  body.dark .map-hint{background:rgba(255,255,255,.12);}
+  body.dark .btn.outline{background:var(--card);}
+  body.dark #stat-total-lots, body.dark #stat-stops, body.dark #stat-dist{color:var(--jnt-red);}
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    overscroll-behavior:none;
+  }
+  #app{
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    height:100dvh;
+  }
+
+  /* HEADER */
+  header{
+    background:var(--jnt-red);
+    color:#fff;
+    padding:12px 16px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-shrink:0;
+    box-shadow:0 2px 6px rgba(0,0,0,.15);
+    z-index:1000;
+  }
+  header h1{font-size:17px;margin:0;font-weight:700;}
+  header .sub{font-size:11px;opacity:.9;}
+
+  /* TABS */
+  nav.tabs{
+    display:flex;
+    background:#fff;
+    border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  nav.tabs button{
+    flex:1;
+    border:none;
+    background:none;
+    padding:12px 4px;
+    font-size:13px;
+    font-weight:600;
+    color:var(--muted);
+    border-bottom:3px solid transparent;
+  }
+  nav.tabs button.active{
+    color:var(--jnt-red);
+    border-bottom:3px solid var(--jnt-red);
+  }
+
+  main{
+    flex:1;
+    overflow:hidden;
+    position:relative;
+  }
+  .view{
+    position:absolute;
+    inset:0;
+    overflow-y:auto;
+    display:none;
+    -webkit-overflow-scrolling:touch;
+  }
+  .view.active{display:block;}
+
+  #map{width:100%;height:100%;}
+
+  .panel{padding:14px;}
+
+  /* Card */
+  .card{
+    background:var(--card);
+    border-radius:14px;
+    padding:14px;
+    margin-bottom:12px;
+    box-shadow:0 1px 3px rgba(0,0,0,.08);
+    border:1px solid var(--border);
+  }
+  .card h3{margin:0 0 8px;font-size:15px;}
+  .card p{margin:2px 0;font-size:13px;color:var(--muted);}
+
+  label{
+    display:block;
+    font-size:13px;
+    font-weight:600;
+    margin:10px 0 4px;
+    color:#374151;
+  }
+  input[type=text], textarea, select{
+    width:100%;
+    padding:12px;
+    font-size:15px;
+    border:1px solid var(--border);
+    border-radius:10px;
+    background:var(--input-bg);
+    color:var(--text);
+    font-family:inherit;
+  }
+  textarea{resize:vertical;min-height:50px;}
+
+  .btn{
+    display:block;
+    width:100%;
+    padding:16px;
+    font-size:16px;
+    font-weight:700;
+    border:none;
+    border-radius:12px;
+    background:var(--jnt-red);
+    color:#fff;
+    margin-top:12px;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .btn:active{background:var(--jnt-dark);}
+  .btn.secondary{background:#374151;}
+  .btn.green{background:var(--green);}
+  .btn.outline{
+    background:#fff;
+    color:var(--jnt-red);
+    border:2px solid var(--jnt-red);
+  }
+  .btn.small{
+    width:auto;
+    padding:8px 14px;
+    font-size:13px;
+    margin-top:0;
+    display:inline-block;
+  }
+  .btn:disabled{background:#d1d5db;color:#9ca3af;}
+
+  .lot-item{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .lot-item .info{flex:1;min-width:0;}
+  .lot-item .actions{display:flex;flex-direction:column;gap:6px;}
+  .lot-item .actions button{
+    border:none;
+    border-radius:8px;
+    padding:8px 10px;
+    font-size:12px;
+    font-weight:600;
+  }
+  .add-btn{background:var(--jnt-red);color:#fff;}
+  .del-btn{background:#fee2e2;color:#b91c1c;}
+
+  .checkbox-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:12px;
+    margin-bottom:8px;
+  }
+  .checkbox-row input{width:20px;height:20px;flex-shrink:0;}
+  .checkbox-row .info{flex:1;}
+  .checkbox-row .info b{font-size:14px;}
+  .checkbox-row .info div{font-size:12px;color:var(--muted);}
+
+  .route-step{
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:12px;
+    margin-bottom:10px;
+  }
+  .route-step .num{
+    background:var(--jnt-red);
+    color:#fff;
+    font-weight:700;
+    width:28px;height:28px;
+    border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+    font-size:13px;
+  }
+  .route-step .info{flex:1;}
+  .route-step .info b{font-size:14px;}
+  .route-step .info div{font-size:12px;color:var(--muted);margin-top:2px;}
+  .route-step .dist{font-size:12px;color:var(--green);font-weight:700;white-space:nowrap;}
+  .route-step a.nav-link{
+    font-size:12px;
+    color:var(--jnt-red);
+    font-weight:700;
+    text-decoration:none;
+  }
+
+  .empty{
+    text-align:center;
+    color:var(--muted);
+    font-size:13px;
+    padding:30px 10px;
+  }
+
+  .badge{
+    display:inline-block;
+    background:#fee2e2;
+    color:var(--jnt-red);
+    font-size:11px;
+    font-weight:700;
+    padding:2px 8px;
+    border-radius:20px;
+    margin-left:6px;
+  }
+
+  .banner{
+    background:#fff7ed;
+    border:1px solid #fed7aa;
+    color:#9a3412;
+    font-size:12.5px;
+    padding:10px 12px;
+    border-radius:10px;
+    margin-bottom:12px;
+  }
+
+  .summary-bar{
+    display:flex;
+    gap:8px;
+    margin-bottom:12px;
+  }
+  .summary-bar .box{
+    flex:1;
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:10px;
+    text-align:center;
+  }
+  .summary-bar .box .num{font-size:18px;font-weight:800;color:var(--jnt-red);}
+  .summary-bar .box .label{font-size:11px;color:var(--muted);}
+
+  #pin-form-floating{
+    position:absolute;
+    left:0;right:0;bottom:0;
+    background:#fff;
+    border-top-left-radius:18px;
+    border-top-right-radius:18px;
+    box-shadow:0 -4px 16px rgba(0,0,0,.15);
+    padding:16px;
+    transform:translateY(110%);
+    transition:transform .25s ease;
+    z-index:900;
+    max-height:70%;
+    overflow-y:auto;
+  }
+  #pin-form-floating.show{transform:translateY(0);}
+  .map-hint{
+    position:absolute;
+    top:66px;left:10px;right:10px;
+    background:rgba(0,0,0,.72);
+    color:#fff;
+    font-size:12.5px;
+    padding:8px 12px;
+    border-radius:10px;
+    text-align:center;
+    z-index:800;
+  }
+  .close-x{
+    position:absolute;top:10px;right:14px;
+    font-size:20px;color:var(--muted);
+    background:none;border:none;
+  }
+  .locate-btn{
+    position:absolute;
+    right:12px;bottom:16px;
+    background:#fff;
+    width:46px;height:46px;
+    border-radius:50%;
+    border:none;
+    box-shadow:0 2px 8px rgba(0,0,0,.25);
+    font-size:20px;
+    z-index:700;
+  }
+
+  /* SEARCH BAR (macam Google Maps) */
+  #search-wrap{
+    position:absolute;
+    top:10px;left:10px;right:10px;
+    z-index:1100;
+  }
+  #search-box{
+    display:flex;
+    align-items:center;
+    background:var(--card);
+    border-radius:24px;
+    box-shadow:0 2px 10px rgba(0,0,0,.25);
+    padding:4px 6px 4px 14px;
+  }
+  #search-box .icon{font-size:16px;color:var(--muted);flex-shrink:0;}
+  #search-input{
+    flex:1;
+    border:none;
+    outline:none;
+    background:transparent;
+    font-size:15px;
+    padding:10px 8px;
+    color:var(--text);
+  }
+  #search-clear-btn{
+    background:#e5e7eb;
+    border:none;
+    width:28px;height:28px;
+    border-radius:50%;
+    color:#555;
+    font-size:14px;
+    flex-shrink:0;
+    display:none;
+  }
+  body.dark #search-clear-btn{background:#333;color:#ddd;}
+  #search-spinner{
+    width:16px;height:16px;
+    border:2px solid var(--border);
+    border-top-color:var(--jnt-red);
+    border-radius:50%;
+    display:none;
+    flex-shrink:0;
+    margin-right:4px;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  #search-results{
+    margin-top:6px;
+    background:var(--card);
+    border-radius:14px;
+    box-shadow:0 4px 14px rgba(0,0,0,.25);
+    max-height:260px;
+    overflow-y:auto;
+    display:none;
+  }
+  .search-result-item{
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+    padding:12px 14px;
+    border-bottom:1px solid var(--border);
+  }
+  .search-result-item:last-child{border-bottom:none;}
+  .search-result-item .pin{font-size:16px;margin-top:1px;flex-shrink:0;}
+  .search-result-item .txt b{font-size:14px;display:block;}
+  .search-result-item .txt span{font-size:12px;color:var(--muted);}
+  .search-result-empty{
+    padding:14px;
+    text-align:center;
+    font-size:13px;
+    color:var(--muted);
+  }
+
+  /* LIVE VIEW TOGGLE */
+  .live-btn{
+    position:absolute;
+    right:12px;bottom:68px;
+    background:#fff;
+    width:46px;height:46px;
+    border-radius:50%;
+    border:none;
+    box-shadow:0 2px 8px rgba(0,0,0,.25);
+    font-size:20px;
+    z-index:700;
+    cursor:pointer;
+  }
+  .live-btn.active{background:var(--jnt-red);color:#fff;}
+  body.dark .live-btn{background:var(--card);color:var(--text);}
+  body.dark .live-btn.active{background:var(--jnt-red);color:#fff;}
+
+  /* PARCEL COUNT BADGE ON MAP */
+  .parcel-count-badge{
+    position:absolute;
+    top:180px;right:10px;
+    background:var(--jnt-red);
+    color:#fff;
+    font-size:13px;
+    font-weight:700;
+    padding:8px 14px;
+    border-radius:20px;
+    z-index:800;
+    box-shadow:0 2px 8px rgba(0,0,0,.2);
+    pointer-events:none;
+  }
+
+  /* PARCEL ROWS IN FORM */
+  .parcel-row{
+    background:var(--input-bg);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:12px 28px 10px 10px;
+    margin-bottom:8px;
+    position:relative;
+  }
+  .parcel-row .remove-parcel{
+    position:absolute;
+    top:6px;right:6px;
+    background:none;
+    border:none;
+    font-size:16px;
+    color:var(--muted);
+    cursor:pointer;
+    padding:4px;
+  }
+  .parcel-row label{font-size:12px;margin:4px 0 2px;display:block;font-weight:500;color:var(--muted);}
+  .parcel-row input{padding:8px;font-size:14px;margin-bottom:4px;width:100%;}
+
+  /* POPUP PARCEL LIST */
+  .popup-parcels{margin-top:6px;border-top:1px solid var(--border);padding-top:4px;}
+  .popup-parcel{font-size:12px;padding:3px 0;}
+  .popup-parcel b{color:var(--jnt-red);}
+
+  /* STATUS PILLS */
+  .status-pill{display:inline-block;font-size:10px;font-weight:700;padding:1px 10px;border-radius:20px;margin-left:4px;vertical-align:middle;}
+  .status-pending{background:#fef3c7;color:#92400e;}
+  .status-in_progress{background:#dbeafe;color:#1e40af;}
+  .status-delivered{background:#dcfce7;color:#166534;}
+  .status-failed{background:#fee2e2;color:#991b1b;}
+
+  /* TASK TOOLBAR */
+  .task-toolbar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+  .task-toolbar select{flex:1;min-width:110px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);font-size:13px;background:var(--input-bg);color:var(--text);}
+
+  /* PROXIMITY DISTANCE */
+  .dist-note{font-size:11px;color:var(--muted);margin-left:6px;}
+
+  /* GEOFENCE BUTTON */
+  .geofence-btn{
+    position:absolute;right:12px;bottom:124px;
+    background:#fff;width:46px;height:46px;border-radius:50%;border:none;
+    box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:20px;z-index:700;cursor:pointer;
+  }
+  .geofence-btn.active{background:var(--green);color:#fff;}
+  body.dark .geofence-btn{background:var(--card);color:var(--text);}
+  body.dark .geofence-btn.active{background:var(--green);color:#fff;}
+
+  /* TOAST */
+  .toast{
+    position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
+    background:#166534;color:#fff;padding:12px 24px;border-radius:14px;
+    font-size:14px;font-weight:600;z-index:9999;white-space:nowrap;
+    box-shadow:0 4px 16px rgba(0,0,0,.3);
+    animation:toastIn .3s ease;
+  }
+  .toast.fail{background:#991b1b;}
+  @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}}
+
+  /* SCAN BUTTON IN PARCEL ROW */
+  .scan-btn{
+    background:var(--jnt-red);color:#fff;border:none;
+    border-radius:8px;padding:4px 8px;font-size:14px;cursor:pointer;
+    margin-left:4px;vertical-align:middle;
+  }
+  .scan-btn:active{background:var(--jnt-dark);}
+
+  /* ROUTE STATUS SUMMARY */
+  .route-status-summary{font-size:12px;color:var(--muted);margin-top:4px;}
+
+  /* OCR PROGRESS BAR */
+  .ocr-progress-wrap{display:none;margin-top:6px;height:4px;border-radius:4px;background:#e5e7eb;overflow:hidden;}
+  .ocr-progress-bar{height:100%;width:0%;background:var(--jnt-red);transition:width .3s;}
+
+  /* OCR OVERLAY */
+  .ocr-overlay{display:none;position:fixed;inset:0;z-index:9999;background:#000;}
+  .ocr-overlay video{width:100%;height:100%;object-fit:cover;}
+  .ocr-frame{position:absolute;top:50%;left:10%;right:10%;height:120px;border:3px dashed rgba(255,255,255,.7);border-radius:12px;transform:translateY(-60%);box-shadow:0 0 0 9999px rgba(0,0,0,.5);pointer-events:none;}
+  .ocr-overlay .capture-btn{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);width:70px;height:70px;border-radius:50%;border:4px solid #fff;background:rgba(255,255,255,.3);color:#fff;font-size:28px;cursor:pointer;}
+  .ocr-overlay .close-overlay{position:absolute;top:16px;right:16px;background:rgba(0,0,0,.6);color:#fff;border:none;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;}
+
+  /* OCR PREVIEW PANEL */
+  .ocr-preview{display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:var(--card);border-radius:18px 18px 0 0;padding:16px;max-height:50%;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,.3);}
+  .ocr-preview h4{margin:0 0 8px;}
+  .ocr-preview textarea{width:100%;min-height:60px;padding:10px;font-size:14px;border:1px solid var(--border);border-radius:10px;resize:vertical;}
+  .ocr-preview .ocr-actions{display:flex;gap:6px;margin-top:8px;}
+
+  /* NAVIGATION BUTTON ON MAP */
+  .nav-btn{
+    position:absolute;right:12px;bottom:182px;
+    background:#fff;width:46px;height:46px;border-radius:50%;border:none;
+    box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:20px;z-index:700;cursor:pointer;
+  }
+  .nav-btn.active{background:#1d4ed8;color:#fff;}
+  body.dark .nav-btn{background:var(--card);color:var(--text);}
+  body.dark .nav-btn.active{background:#1d4ed8;color:#fff;}
+
+  /* NAVIGATION FLOATING PANEL */
+  .nav-panel{display:none;position:absolute;left:8px;right:8px;bottom:80px;background:var(--card);border-radius:16px;box-shadow:0 -4px 20px rgba(0,0,0,.25);z-index:950;padding:12px;max-height:45%;overflow-y:auto;transition:transform .2s,opacity .2s;}
+  .nav-panel .nav-header{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:1px solid var(--border);cursor:grab;touch-action:none;}
+  .nav-panel .nav-header-title{font-size:14px;font-weight:700;}
+  .nav-panel .nav-header-actions{display:flex;gap:6px;}
+  .nav-panel .nav-header-actions button{background:none;border:none;font-size:16px;color:var(--muted);cursor:pointer;padding:4px;}
+  .nav-panel .nav-body{}
+  .nav-panel .nav-progress{font-size:13px;color:var(--muted);text-align:center;margin:6px 0 4px;}
+  .nav-panel .nav-address{font-size:15px;font-weight:600;margin:2px 0;}
+  .nav-panel .nav-detail{font-size:12px;color:var(--muted);}
+  .nav-panel .nav-dist{font-size:28px;font-weight:800;color:var(--jnt-red);text-align:center;padding:8px 0;}
+  .nav-panel .nav-dist small{font-size:14px;font-weight:400;}
+  .nav-actions{display:flex;gap:6px;margin-top:8px;}
+  .nav-actions button{flex:1;padding:10px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;}
+  .nav-btn-waze{background:#05b5da;color:#fff;}
+  .nav-btn-maps{background:#4285f4;color:#fff;}
+  .nav-btn-done{background:var(--green);color:#fff;}
+  .nav-btn-next{background:#374151;color:#fff;width:100%;margin-top:6px;padding:10px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;}
+  .nav-btn-stop{background:#dc2626;color:#fff;width:100%;margin-top:6px;padding:10px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;}
+  .nav-panel .nav-expand{display:none;align-items:center;gap:6px;font-size:14px;font-weight:600;}
+
+  /* MINIMIZED STATE */
+  .nav-panel.minimized{left:auto;right:10px;bottom:70px;width:auto;padding:8px 14px;border-radius:24px;cursor:pointer;}
+  .nav-panel.minimized .nav-header{padding-bottom:0;border-bottom:none;}
+  .nav-panel.minimized .nav-body{display:none;}
+  .nav-panel.minimized .nav-expand{display:flex;}
+
+  /* GPS ARROW MARKER */
+  .arrow-marker{width:24px;height:24px;background:#3b82f6;border:3px solid #fff;border-radius:50% 50% 50% 2px;box-shadow:0 2px 6px rgba(0,0,0,.3);}
+
+  /* QUICK ADD OVERLAY */
+  .qa-overlay{display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.5);padding:20px;overflow-y:auto;}
+  .qa-card{background:var(--card);border-radius:18px;padding:20px;max-width:500px;margin:40px auto;}
+  .qa-card h3{margin:0 0 12px;}
+  .qa-card label{font-size:12px;margin:8px 0 3px;display:block;font-weight:600;color:var(--muted);}
+
+  /* PARCEL CHECKBOX (indent) */
+  .parcel-checkbox-row{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 36px;margin-bottom:2px;font-size:13px;}
+  .parcel-checkbox-row input{width:16px;height:16px;flex-shrink:0;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Secure Context Warning -->
+  <div id="secure-warning" style="display:none;background:#dc2626;color:#fff;text-align:center;padding:10px 12px;font-size:13px;font-weight:700;z-index:99999;">
+    ⚠️ GPS & Kamera perlukan HTTPS/localhost.
+    <br><small style="opacity:.9;">Guna PowerShell: <code style="background:rgba(0,0,0,.3);padding:2px 6px;border-radius:4px;">python -m http.server</code> & buka <b>http://localhost:8000</b></small>
+  </div>
+
+  <header>
+    <div>
+      <h1>🛵 Kurier Route Helper</h1>
+      <div class="sub">Pin lot • Susun laluan • Percuma</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div class="badge" id="lot-count-badge">0 Lot</div>
+      <button id="quick-add-header-btn" title="Tambah Parcel" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:16px;">➕</button>
+      <button id="dark-toggle-btn" title="Tukar Mod Gelap" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:16px;">🌙</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-view="view-map">🗺️ Peta</button>
+    <button class="tab-btn" data-view="view-lots">📍 Lot Rumah</button>
+    <button class="tab-btn" data-view="view-task">📦 Tugasan</button>
+    <button class="tab-btn" data-view="view-route">🚀 Laluan</button>
+  </nav>
+
+  <main>
+    <!-- VIEW 1: MAP -->
+    <div class="view active" id="view-map" style="overflow:hidden;">
+      <div id="map"></div>
+
+      <div id="search-wrap">
+        <div id="search-box">
+          <span class="icon">🔍</span>
+          <input type="text" id="search-input" placeholder="Cari lokasi, alamat, atau bandar..." autocomplete="off">
+          <div id="search-spinner"></div>
+          <button id="search-clear-btn">✕</button>
+        </div>
+        <div id="search-results"></div>
+      </div>
+
+      <div class="map-hint" id="map-hint">👉 Tekan mana-mana lokasi pada peta untuk Pin Lot Rumah baru</div>
+      <div class="parcel-count-badge" id="parcel-count-badge">📦 0 baki</div>
+      <button class="locate-btn" id="locate-btn" title="Cari lokasi saya">📍</button>
+      <button class="live-btn" id="live-btn" title="Pandu Hidup (GPS ikut)">🚗</button>
+      <button class="geofence-btn" id="geofence-btn" title="Auto Check-in (Geofence)">⭕</button>
+      <button class="nav-btn" id="nav-btn" title="Mod Navigasi">🧭</button>
+
+      <div id="pin-form-floating">
+        <button class="close-x" id="close-pin-form">✕</button>
+        <h3 style="margin-top:0;">📌 Pin Lot Rumah Baru</h3>
+        <p style="font-size:12px;color:var(--muted);" id="pin-coords"></p>
+
+        <label>Alamat / Nota Lot *</label>
+        <textarea id="pin-address" placeholder="cth: No 12, Lorong Melur 3, rumah pagar hijau"></textarea>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <button class="btn outline small" id="ocr-camera-btn" style="flex:1;padding:8px;">📷 Scan Alamat</button>
+          <button class="btn outline small" id="ocr-gallery-btn" style="flex:1;padding:8px;">🖼️ Import Gambar</button>
+        </div>
+        <div class="ocr-progress-wrap" id="ocr-progress-wrap"><div class="ocr-progress-bar" id="ocr-progress-bar"></div></div>
+        <div id="ocr-progress-label" style="font-size:11px;color:var(--muted);text-align:center;margin-top:2px;"></div>
+
+        <label>No. Telefon (pilihan)</label>
+        <input type="text" id="pin-phone" placeholder="cth: 012-3456789">
+
+        <label>Parcel / Bungkusan</label>
+        <div id="parcel-rows"></div>
+        <button class="btn outline small" id="add-parcel-btn" style="margin-bottom:8px;">➕ Tambah Parcel</button>
+
+        <button class="btn" id="save-pin-btn">💾 Simpan Lot Rumah</button>
+      </div>
+    </div>
+
+    <!-- VIEW 2: LOT LIST -->
+    <div class="view" id="view-lots">
+      <div class="panel">
+        <div class="summary-bar">
+          <div class="box"><div class="num" id="stat-total-lots">0</div><div class="label">Jumlah Lot</div></div>
+        </div>
+        <div class="banner">💡 Ini adalah senarai kekal lot rumah anda. Tekan tab "Peta" untuk tambah lot baru dengan klik lokasi.</div>
+
+        <div class="card">
+          <h3>💾 Backup / Pindah Data</h3>
+          <p>Eksport semua lot rumah ke fail .json untuk simpan salinan, atau import semula ke telefon lain.</p>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn outline small" id="export-btn" style="flex:1;">⬆️ Eksport</button>
+            <button class="btn outline small" id="import-btn" style="flex:1;">⬇️ Import</button>
+          </div>
+          <input type="file" id="import-file-input" accept="application/json" style="display:none;">
+        </div>
+
+        <div id="lot-list"></div>
+      </div>
+    </div>
+
+    <!-- VIEW 3: DAILY TASK -->
+    <div class="view" id="view-task">
+      <div class="panel">
+        <div class="card">
+          <h3>📦 Pilih Hantaran Hari Ini</h3>
+          <p>Tandakan lot rumah yang perlu dihantar hari ini, kemudian tekan "Susun Laluan Automatik". Sistem akan cuba guna jarak jalan sebenar (OSRM); jika tiada internet, ia akan guna anggaran jarak lurus secara automatik.</p>
+        </div>
+        <div class="task-toolbar">
+          <button class="btn outline small" id="select-all-btn" style="flex:1;">✅ Pilih Semua</button>
+          <button class="btn outline small" id="deselect-all-btn" style="flex:1;">❌ Nyahpilih</button>
+          <button class="btn outline small" id="archive-btn" style="flex:0;padding:8px 10px;" title="Arkibkan selesai">📦 Arkib</button>
+          <select id="sort-task-select">
+            <option value="date">Tarikh Ditambah</option>
+            <option value="name">Nama Penerima</option>
+            <option value="area">Kawasan</option>
+            <option value="proximity">Proximiti GPS 📡</option>
+          </select>
+        </div>
+        <div id="task-select-list"></div>
+        <button class="btn" id="build-route-btn">🚀 Susun Laluan Automatik</button>
+      </div>
+    </div>
+
+    <!-- VIEW 4: OPTIMIZED ROUTE -->
+    <div class="view" id="view-route">
+      <div class="panel">
+        <div class="summary-bar" id="route-summary" style="display:none;">
+          <div class="box"><div class="num" id="stat-stops">0</div><div class="label">Perhentian</div></div>
+          <div class="box"><div class="num" id="stat-dist">0 km</div><div class="label" id="stat-dist-label">Jarak</div></div>
+          <div class="box"><div class="num" id="stat-duration">-</div><div class="label">Anggaran Masa</div></div>
+        </div>
+        <div id="route-method-badge" style="display:none;" class="banner"></div>
+        <div id="route-list"></div>
+        <button class="btn secondary" id="clear-route-btn" style="display:none;">🗑️ Kosongkan Laluan</button>
+        <button class="btn green" id="share-route-btn" style="display:none;">📤 Kongsi Laluan di WhatsApp</button>
+      </div>
+    </div>
+
+    <!-- OCR Camera Overlay -->
+    <div class="ocr-overlay" id="ocr-overlay">
+      <video id="ocr-video" autoplay playsinline></video>
+      <canvas id="ocr-canvas" style="display:none;"></canvas>
+      <div class="ocr-frame"></div>
+      <button class="capture-btn" id="ocr-capture-btn">📷</button>
+      <button class="close-overlay" id="ocr-close-btn">✕</button>
+    </div>
+
+    <!-- OCR Preview Panel -->
+    <div class="ocr-preview" id="ocr-preview">
+      <h4>📝 Hasil OCR</h4>
+      <textarea id="ocr-result-text" rows="3" placeholder="Hasil OCR akan dipaparkan di sini..."></textarea>
+      <div class="ocr-actions">
+        <button class="btn outline small" id="ocr-use-btn" style="flex:1;">✅ Guna Alamat Ini</button>
+        <button class="btn outline small" id="ocr-retry-btn" style="flex:1;">🔄 Cuba Semula</button>
+      </div>
+    </div>
+
+    <!-- Navigation Floating Panel -->
+    <div class="nav-panel" id="nav-panel">
+      <div class="nav-header" id="nav-drag-handle">
+        <span class="nav-header-title">🧭 Navigasi Mode</span>
+        <div class="nav-header-actions">
+          <button id="nav-minimize-btn">−</button>
+          <button id="nav-close-btn">✕</button>
+        </div>
+      </div>
+      <div class="nav-body" id="nav-body">
+        <div class="nav-progress" id="nav-progress">Perhentian 1/1</div>
+        <div class="nav-address" id="nav-address"></div>
+        <div class="nav-detail" id="nav-recipient"></div>
+        <div class="nav-detail" id="nav-parcels"></div>
+        <div class="nav-dist" id="nav-distance">--</div>
+        <div class="nav-actions">
+          <button class="nav-btn-done" id="nav-done-btn">✅ Sampai</button>
+          <button class="nav-btn-waze" id="nav-waze-btn">🗺️ Waze</button>
+          <button class="nav-btn-maps" id="nav-gmaps-btn">🗺️ Google Maps</button>
+        </div>
+        <button class="nav-btn-next" id="nav-next-btn">⏭️ Stop seterusnya</button>
+        <button class="nav-btn-stop" id="nav-stop-btn">⏹️ Tamat Navigasi</button>
+      </div>
+      <div class="nav-expand" id="nav-expand">
+        <span>🧭</span>
+        <span id="nav-mini-dist" style="font-weight:700;">--</span>
+      </div>
+    </div>
+
+    <!-- Quick Add Parcel Overlay -->
+    <div class="qa-overlay" id="qa-overlay">
+      <div class="qa-card">
+        <h3>📦 Tambah Parcel</h3>
+        <label>No. Tracking</label>
+        <div style="display:flex;gap:4px;">
+          <input type="text" id="qa-tracking" placeholder="cth: MY123456" style="flex:1;">
+          <button class="scan-btn" id="qa-scan-btn">📷</button>
+        </div>
+        <label>Nama Penerima</label>
+        <input type="text" id="qa-recipient" placeholder="cth: En. Ahmad">
+        <label>Alamat / Pilih Lot Sedia Ada</label>
+        <select id="qa-lot-select"><option value="">-- Pilih lot sedia ada --</option></select>
+        <p style="text-align:center;color:var(--muted);font-size:12px;margin:8px 0;">ATAU</p>
+        <textarea id="qa-address" rows="2" placeholder="Atau taip alamat baru..."></textarea>
+        <div style="display:flex;gap:6px;margin-top:10px;">
+          <button class="btn" id="qa-save-btn" style="flex:1;">💾 Simpan</button>
+          <button class="btn secondary" id="qa-close-btn" style="flex:0;">✕</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* =============== STATE & STORAGE =============== */
+const LOTS_KEY = 'jnt_lots_v1';
+const TASK_KEY = 'jnt_task_v1';
+const PARCEL_TASK_KEY = 'jnt_parcels_v2';
+const ROUTE_KEY = 'jnt_route_v1';
+
+let lots = JSON.parse(localStorage.getItem(LOTS_KEY) || '[]').map(function(lot){
+  // Backward compat: ensure parcels field exists + each parcel has status
+  if(!lot.parcels) lot.parcels = [{ recipient: lot.name || '(Tiada nama)', trackingNo: '-', status: 'pending' }];
+  lot.parcels.forEach(function(p){ if(!p.status) p.status = 'pending'; });
+  return lot;
+});
+// Per-parcel selection: { lotId: [parcelIdx, ...] }
+let selectedParcels = JSON.parse(localStorage.getItem(PARCEL_TASK_KEY) || 'null');
+if(!selectedParcels){
+  // Migrate from old format
+  selectedParcels = {};
+  var oldIds = JSON.parse(localStorage.getItem(TASK_KEY) || '[]');
+  oldIds.forEach(function(id){
+    var lot = lots.find(function(l){ return l.id === id; });
+    if(lot && lot.parcels){
+      selectedParcels[id] = lot.parcels.map(function(_, idx){ return idx; });
+    }
+  });
+}
+let optimizedRoute = JSON.parse(localStorage.getItem(ROUTE_KEY) || 'null');
+
+function saveLots(){ localStorage.setItem(LOTS_KEY, JSON.stringify(lots)); }
+function saveTask(){ localStorage.setItem(PARCEL_TASK_KEY, JSON.stringify(selectedParcels)); }
+function saveRoute(){ localStorage.setItem(ROUTE_KEY, JSON.stringify(optimizedRoute)); }
+
+function uid(){ return 'lot_' + Date.now() + '_' + Math.floor(Math.random()*10000); }
+
+/* =============== PERMISSION HELPERS (GPS / Kamera) =============== */
+var SECURE_WARN_SHOWN = false;
+function showSecureWarning(){
+  var el = document.getElementById('secure-warning');
+  if(el && !SECURE_WARN_SHOWN){
+    el.style.display = 'block';
+    SECURE_WARN_SHOWN = true;
+  }
+}
+
+function isSecureContext(){
+  return location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+}
+
+function showPermissionGuide(type){
+  var msg = type === 'location'
+    ? '📍 GPS diblok. Buka: Settings > Apps > Chrome > Permissions > Location > Allow'
+    : '📷 Kamera diblok. Buka: Settings > Apps > Chrome > Permissions > Camera > Allow';
+  showToast(msg, true);
+  // Also show a modal/alert for clarity
+  setTimeout(function(){ alert('🔒 ' + msg); }, 500);
+}
+
+function requestGeoOnce(success, fail, options){
+  if(!isSecureContext()){ showSecureWarning(); if(fail) fail({code:-1}); return; }
+  if(!navigator.geolocation){ showToast('GPS tidak disokong peranti ini', true); if(fail) fail({code:-2}); return; }
+
+  var doRequest = function(){
+    navigator.geolocation.getCurrentPosition(function(pos){
+      if(success) success(pos);
+    }, function(err){
+      if(err.code === 1){ showPermissionGuide('location'); }
+      else if(err.code === 2){ showToast('GPS tak dapat signal. Cuba di kawasan terbuka.', true); }
+      else if(err.code === 3){ showToast('GPS timeout. CubaLagi.', true); }
+      else{ showToast('Error GPS: ' + err.message, true); }
+      if(fail) fail(err);
+    }, options || {enableHighAccuracy:false,timeout:10000,maximumAge:60000});
+  };
+
+  if(navigator.permissions){
+    navigator.permissions.query({name:'geolocation'}).then(function(r){
+      if(r.state === 'denied'){ showPermissionGuide('location'); if(fail) fail({code:1}); return; }
+      doRequest();
+    }).catch(function(){ doRequest(); });
+  }else{ doRequest(); }
+}
+
+function requestGeoWatch(success, fail, options){
+  if(!isSecureContext()){ showSecureWarning(); if(fail) fail({code:-1}); return null; }
+  if(!navigator.geolocation){ showToast('GPS tidak disokong peranti ini', true); if(fail) fail({code:-2}); return null; }
+
+  return navigator.geolocation.watchPosition(function(pos){
+    if(success) success(pos);
+  }, function(err){
+    if(err.code === 1){ showPermissionGuide('location'); }
+    else if(err.code === 2){ showToast('GPS hilang signal. Cuba kawasan terbuka.', true); }
+    else if(err.code === 3){ showToast('GPS timeout.', true); }
+    else{ showToast('Error GPS: ' + err.message, true); }
+    if(fail) fail(err);
+  }, options || {enableHighAccuracy:false,timeout:10000,maximumAge:60000});
+}
+
+// File protocol check on load
+if(!isSecureContext()){ showSecureWarning(); }
+
+/* =============== PARCEL ROW HELPERS =============== */
+function resetParcelRows(initialCount){
+  const container = document.getElementById('parcel-rows');
+  if(!container) return;
+  container.innerHTML = '';
+  for(let i=0; i<(initialCount||1); i++) addParcelRow('','');
+}
+function addParcelRow(recipient, trackingNo){
+  const container = document.getElementById('parcel-rows');
+  if(!container) return;
+  const div = document.createElement('div');
+  div.className = 'parcel-row';
+  div.innerHTML =
+    '<button class="remove-parcel" type="button">✕</button>' +
+    '<label>Nama Penerima</label>' +
+    '<input class="parcel-recipient" type="text" placeholder="cth: En. Ahmad" value="'+escapeAttr(recipient||'')+'">' +
+    '<label>No. Tracking</label>' +
+    '<div style="display:flex;gap:4px;align-items:center">' +
+    '<input class="parcel-tracking" type="text" placeholder="cth: MY987654321" value="'+escapeAttr(trackingNo||'')+'" style="flex:1">' +
+    '</div>';
+  div.querySelector('.remove-parcel').addEventListener('click', function(){
+    if(container.children.length<=1){ alert('Mesti ada sekurang-kurangnya satu parcel.'); return; }
+    div.remove();
+  });
+  container.appendChild(div);
+  // Add scan button after tracking input
+  var inp = div.querySelector('.parcel-tracking');
+  if(inp) addBarcodeScanBtn(inp);
+}
+function escapeAttr(str){
+  return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function getParcelCount(){
+  return lots.reduce(function(sum,l){
+    return sum + (l.parcels ? l.parcels.length : 1);
+  }, 0);
+}
+function updateParcelCount(){
+  var el = document.getElementById('parcel-count-badge');
+  if(el) el.innerText = '📦 ' + getParcelCount() + ' baki';
+}
+
+/* =============== DELIVERY STATUS HELPERS =============== */
+function getLotStatus(lot){
+  if(!lot.parcels || !lot.parcels.length) return 'pending';
+  var hasP=false, hasG=false, hasD=false, hasF=false;
+  lot.parcels.forEach(function(p){
+    var s=p.status||'pending';
+    if(s==='pending') hasP=true;
+    if(s==='in_progress') hasG=true;
+    if(s==='delivered') hasD=true;
+    if(s==='failed') hasF=true;
+  });
+  if(hasF) return 'failed';
+  if(hasG) return 'in_progress';
+  if(hasD && !hasP) return 'delivered';
+  return 'pending';
+}
+function getColorForStatus(s){
+  if(s==='delivered') return '#16a34a';
+  if(s==='in_progress') return '#2563eb';
+  if(s==='failed') return '#6b7280';
+  return '#e2231a';
+}
+function statusPill(s){
+  var label={pending:'Pending',in_progress:'Dalam Proses',delivered:'Selesai',failed:'Gagal'};
+  return '<span class="status-pill status-'+s+'">'+(label[s]||s)+'</span>';
+}
+function setParcelStatus(lotId, parcelIdx, status){
+  var lot=lots.find(function(l){return l.id===lotId;});
+  if(!lot||!lot.parcels[parcelIdx]) return;
+  lot.parcels[parcelIdx].status=status;
+  saveLots();
+  renderAllLotMarkers();
+  renderLotList();
+  renderTaskSelect();
+  renderRouteView();
+  updateParcelCount();
+}
+function getDeliveredCount(){
+  var c=0;
+  lots.forEach(function(l){
+    if(l.parcels) l.parcels.forEach(function(p){if(p.status==='delivered')c++;});
+  });
+  return c;
+}
+function getRemainingCount(){ return getParcelCount()-getDeliveredCount(); }
+
+/* =============== TOAST =============== */
+var toastTimer=null;
+function showToast(msg, isFail){
+  var old=document.querySelector('.toast');
+  if(old) old.remove();
+  if(toastTimer) clearTimeout(toastTimer);
+  var el=document.createElement('div');
+  el.className='toast'+(isFail?' fail':'');
+  el.innerText=msg;
+  document.body.appendChild(el);
+  toastTimer=setTimeout(function(){el.remove();},3000);
+}
+
+/* =============== BARCODE SCAN =============== */
+let pendingBarcodeInput=null;
+let barcodeDetector=null;
+let barcodeScanActive=false;
+let barcodeAnimId=null;
+let barcodeVideoStream=null;
+
+async function initBarcodeDetector(){
+  if('BarcodeDetector' in window){
+    try{
+      barcodeDetector=new BarcodeDetector({formats:['code_128','ean_13','ean_8','itf','qr_code','upc_a','upc_e','pdf417','data_matrix']});
+    }catch(e){ barcodeDetector=null; }
+  }
+}
+initBarcodeDetector();
+
+function addBarcodeScanBtn(inputEl){
+  var btn=document.createElement('button');
+  btn.className='scan-btn';
+  btn.innerText='📷';
+  btn.type='button';
+  btn.title='Scan barcode';
+  btn.onclick=function(){
+    if(!barcodeDetector){ showToast('Barcode Scanner tidak disokong oleh browser ini',true); return; }
+    pendingBarcodeInput=inputEl;
+    startBarcodeScan();
+  };
+  inputEl.parentNode.insertBefore(btn, inputEl.nextSibling);
+}
+
+async function startBarcodeScan(){
+  barcodeScanActive=true;
+  try{
+    barcodeVideoStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:640,height:480}});
+    var video=document.createElement('video');
+    video.setAttribute('id','barcode-video');
+    video.setAttribute('autoplay','');
+    video.setAttribute('playsinline','');
+    video.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:9998;background:#000;';
+    video.srcObject=barcodeVideoStream;
+    document.body.appendChild(video);
+
+    var closeBtn=document.createElement('button');
+    closeBtn.innerText='✕';
+    closeBtn.style.cssText='position:fixed;top:16px;right:16px;z-index:9999;background:rgba(0,0,0,.6);color:#fff;border:none;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;';
+    closeBtn.onclick=stopBarcodeScan;
+    document.body.appendChild(closeBtn);
+
+    var guide=document.createElement('div');
+    guide.style.cssText='position:fixed;top:50%;left:10%;right:10%;height:3px;background:#e2231a;z-index:9999;box-shadow:0 0 12px rgba(226,35,26,.6);transform:translateY(-50%);';
+    document.body.appendChild(guide);
+
+    await video.play();
+    scanLoop();
+  }catch(e){
+    showToast('Gagal buka kamera',true);
+    barcodeScanActive=false;
+  }
+}
+
+function scanLoop(){
+  if(!barcodeScanActive) return;
+  var video=document.getElementById('barcode-video');
+  if(!video||!video.videoWidth) { barcodeAnimId=requestAnimationFrame(scanLoop); return; }
+  barcodeDetector.detect(video).then(function(barcodes){
+    if(barcodes&&barcodes.length>0&&pendingBarcodeInput){
+      pendingBarcodeInput.value=barcodes[0].rawValue;
+      showToast('✅ Barcode: '+barcodes[0].rawValue);
+      stopBarcodeScan();
+      return;
+    }
+    barcodeAnimId=requestAnimationFrame(scanLoop);
+  }).catch(function(){
+    barcodeAnimId=requestAnimationFrame(scanLoop);
+  });
+}
+
+function stopBarcodeScan(){
+  barcodeScanActive=false;
+  if(barcodeAnimId) cancelAnimationFrame(barcodeAnimId);
+  if(barcodeVideoStream){
+    barcodeVideoStream.getTracks().forEach(function(t){t.stop();});
+    barcodeVideoStream=null;
+  }
+  var el=document.getElementById('barcode-video');
+  if(el) el.remove();
+  var btns=document.querySelectorAll('#barcode-video ~ button');
+  btns.forEach(function(b){if(b.onclick===stopBarcodeScan)b.remove();});
+  var guides=document.querySelectorAll('div[style*="z-index:9999"]');
+  guides.forEach(function(g){if(g.style&&g.style.borderRadius==='')g.remove();});
+  // Clean up any remaining overlay elements
+  var all=document.body.children;
+  for(var i=all.length-1;i>=0;i--){
+    var c=all[i];
+    if(c.tagName==='VIDEO'&&c.id==='barcode-video') c.remove();
+  }
+  // Also remove close button and guide
+  document.querySelectorAll('button').forEach(function(b){
+    if(b.innerText==='✕'&&b.style.zIndex==='9999') b.remove();
+  });
+}
+
+/* =============== GEOFENCE AUTO CHECK-IN =============== */
+const GEOFENCE_RADIUS=50;
+let geofenceWatchId=null;
+let geofenceActive=false;
+let geofenceTriggered=new Set();
+
+function startGeofence(){
+  if(!navigator.geolocation){ showToast('GPS tidak disokong',true); return; }
+  if(!optimizedRoute||!optimizedRoute.stops||!optimizedRoute.stops.length){
+    showToast('Tiada laluan untuk geofence', true);
+    return;
+  }
+  geofenceActive=true;
+  document.getElementById('geofence-btn').classList.add('active');
+  showToast('⭕ Geofence dihidupkan');
+  var gpsRetries=0;
+  var gpsFailTimer=null;
+  geofenceWatchId = requestGeoWatch(function(pos){
+    gpsRetries=0;
+    if(gpsFailTimer){ clearTimeout(gpsFailTimer); gpsFailTimer=null; }
+    var user={lat:pos.coords.latitude,lng:pos.coords.longitude};
+    optimizedRoute.stops.forEach(function(stop){
+      if(!stop.parcels||geofenceTriggered.has(stop.id)) return;
+      var pending=stop.parcels.filter(function(p){return (p.status||'pending')!=='delivered'&&(p.status||'pending')!=='failed';});
+      if(!pending.length){ geofenceTriggered.add(stop.id); return; }
+      var dist=haversine(user,stop)*1000;
+      if(dist<=GEOFENCE_RADIUS){
+        pending.forEach(function(p){p.status='delivered';});
+        geofenceTriggered.add(stop.id);
+        saveLots();
+        try{ navigator.vibrate(200); }catch(e){}
+        showToast('✅ Sampai di: '+stop.address);
+        renderAllLotMarkers();
+        renderRouteView();
+        updateParcelCount();
+      }
+    });
+  },function(err){
+    gpsRetries++;
+    if(gpsRetries>=3){
+      showToast('Geofence: gagal dapat GPS selepas '+gpsRetries+' cubaan',true);
+      if(!gpsFailTimer) gpsFailTimer=setTimeout(function(){ stopGeofence(); }, 5000);
+    }
+  },{enableHighAccuracy:false,timeout:10000,maximumAge:60000});
+}
+
+function stopGeofence(){
+  geofenceActive=false;
+  if(geofenceWatchId!==null){ navigator.geolocation.clearWatch(geofenceWatchId); geofenceWatchId=null; }
+  document.getElementById('geofence-btn').classList.remove('active');
+  geofenceTriggered.clear();
+}
+
+/* =============== OCR SCAN (Tesseract.js v5) =============== */
+let ocrWorker = null;
+let ocrStream = null;
+
+async function getOcrWorker(){
+  if(typeof Tesseract === 'undefined'){
+    showToast('OCR enjin tidak dimuatkan (check internet/sambungan CDN)', true);
+    throw new Error('Tesseract not loaded');
+  }
+  if(!ocrWorker){
+    ocrWorker = await Tesseract.createWorker('msa+eng', { logger: function(m){ return updateOcrProgress(m); } });
+  }
+  return ocrWorker;
+}
+
+function updateOcrProgress(m){
+  var bar = document.getElementById('ocr-progress-bar');
+  var label = document.getElementById('ocr-progress-label');
+  if(!bar) return;
+  if(!label){ if(m.status === 'done'){ bar.style.width='100%'; } return; }
+  if(m.status === 'loading tesseract core'){ bar.style.width='10%'; label.textContent='Memuatkan enjin...'; }
+  else if(m.status === 'initializing tesseract'){ bar.style.width='20%'; label.textContent='Inisialisasi...'; }
+  else if(m.status === 'loading language traineddata'){ bar.style.width='30%'; label.textContent='Muat data bahasa...'; }
+  else if(m.status === 'initializing api'){ bar.style.width='40%'; label.textContent='Sedia...'; }
+  else if(m.status === 'recognizing text'){ bar.style.width=Math.round(50 + m.progress*40)+'%'; label.textContent='Mengecam teks... '+Math.round(m.progress*100)+'%'; }
+  else if(m.status === 'done'){ bar.style.width='100%'; label.textContent='Selesai!'; }
+}
+
+function stopOcrStream(){
+  if(ocrStream){ ocrStream.getTracks().forEach(function(t){ t.stop(); }); ocrStream = null; }
+}
+
+// Camera button in pin form: open camera overlay
+document.getElementById('ocr-camera-btn').addEventListener('click', async function(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    showToast('Kamera tidak disokong oleh browser ini (guna HTTPS)', true);
+    return;
+  }
+  var overlay = document.getElementById('ocr-overlay');
+  overlay.style.display = 'flex';
+  var video = document.getElementById('ocr-video');
+  try{
+    var constraints = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } };
+    ocrStream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = ocrStream;
+    await video.play();
+  }catch(e){
+    stopOcrStream();
+    overlay.style.display = 'none';
+    showToast('Gagal buka kamera: ' + e.message + '. Cuba guna Import Gambar sebagai alternatif', true);
+  }
+});
+
+// Capture button in camera overlay
+document.getElementById('ocr-capture-btn').addEventListener('click', function(){
+  var video = document.getElementById('ocr-video');
+  var canvas = document.getElementById('ocr-canvas');
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 720;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  stopOcrStream();
+  document.getElementById('ocr-overlay').style.display = 'none';
+  processOcrCanvas(canvas);
+});
+
+// Close button in camera overlay
+document.getElementById('ocr-close-btn').addEventListener('click', function(){
+  stopOcrStream();
+  document.getElementById('ocr-overlay').style.display = 'none';
+});
+
+// Gallery button in pin form
+document.getElementById('ocr-gallery-btn').addEventListener('click', function(){
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = function(e){
+    var file = e.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(evt){
+      var img = new Image();
+      img.onload = function(){
+        var canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        processOcrCanvas(canvas);
+      };
+      img.src = evt.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+});
+
+async function processOcrCanvas(canvas){
+  var bar = document.getElementById('ocr-progress-bar');
+  var label = document.getElementById('ocr-progress-label');
+  if(bar) bar.style.width = '0%';
+  if(label) label.textContent = 'Memulakan...';
+  try{
+    var worker = await getOcrWorker();
+    var result = await worker.recognize(canvas);
+    var text = result.data.text;
+    document.getElementById('ocr-result-text').value = text;
+    document.getElementById('ocr-preview').style.display = 'block';
+  }catch(e){
+    showToast('OCR gagal: '+e.message, true);
+  }
+}
+
+document.getElementById('ocr-use-btn').addEventListener('click', function(){
+  var text = document.getElementById('ocr-result-text').value;
+  var lines = text.split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l.length > 3; });
+  var addressInput = document.getElementById('pin-address');
+  var nameInput = document.querySelector('#pin-form input[placeholder*="Nama"]');
+  if(addressInput && lines[0]) addressInput.value = lines[0];
+  if(nameInput && lines[1]) nameInput.value = lines[1];
+  document.getElementById('ocr-preview').style.display = 'none';
+  document.getElementById('ocr-progress-bar').style.width = '0%';
+  document.getElementById('ocr-progress-label').textContent = '';
+  showToast('✅ Alamat diisi dari OCR');
+});
+
+document.getElementById('ocr-retry-btn').addEventListener('click', function(){
+  document.getElementById('ocr-preview').style.display = 'none';
+});
+
+/* =============== NAVIGATION MODE (GPS + Waze/GMaps + Floating Panel) =============== */
+let navMode = false;
+let navStopIndex = 0;
+let navWatchId = null;
+let navGpsArrow = null;
+
+function startNavigation(){
+  var route = optimizedRoute;
+  if(!route || !route.stops || !route.stops.length){
+    showToast('Tiada laluan untuk navigasi', true);
+    return;
+  }
+  navMode = true;
+  navStopIndex = 0;
+  updateNavPanel();
+  document.getElementById('nav-panel').classList.add('expanded');
+  document.getElementById('nav-panel').style.display = 'flex';
+  document.getElementById('nav-btn').style.display = 'none';
+  navWatchId = requestGeoWatch(function(pos){
+    updateNavPosition(pos);
+  }, null, { enableHighAccuracy: true, timeout: 5000 });
+  showToast('🧭 Navigasi bermula');
+}
+
+function stopNavigation(){
+  navMode = false;
+  if(navWatchId !== null){
+    navigator.geolocation.clearWatch(navWatchId);
+    navWatchId = null;
+  }
+  if(navGpsArrow){
+    map.removeLayer(navGpsArrow);
+    navGpsArrow = null;
+  }
+  document.getElementById('nav-panel').style.display = 'none';
+  document.getElementById('nav-btn').style.display = 'block';
+  document.getElementById('nav-panel').classList.remove('expanded');
+}
+
+function updateNavPanel(){
+  var route = optimizedRoute;
+  if(!route || !route.stops || navStopIndex >= route.stops.length){
+    document.getElementById('nav-body').style.display = 'none';
+    var completeEl = document.getElementById('nav-complete');
+    if(!completeEl){
+      completeEl = document.createElement('div');
+      completeEl.id = 'nav-complete';
+      completeEl.style.cssText = 'padding:16px;text-align:center;color:var(--jnt-red);font-weight:600;';
+      document.getElementById('nav-panel').appendChild(completeEl);
+    }
+    completeEl.style.display = 'block';
+    completeEl.textContent = '✅ Semua selesai!';
+    if(navWatchId !== null){
+      navigator.geolocation.clearWatch(navWatchId);
+      navWatchId = null;
+    }
+    return;
+  }
+  document.getElementById('nav-body').style.display = 'block';
+  var completeEl = document.getElementById('nav-complete');
+  if(completeEl) completeEl.style.display = 'none';
+  var stop = route.stops[navStopIndex];
+  var total = route.stops.length;
+  document.getElementById('nav-address').textContent = stop.address || '(tiada alamat)';
+  document.getElementById('nav-recipient').textContent = (stop.parcels||[]).length ? 'Penerima: ' + (stop.parcels[0].recipient||'') : 'Tiada parcel';
+  document.getElementById('nav-parcels').innerHTML = (stop.parcels||[]).map(function(p){
+    return '<div>📦 '+(p.recipient||'')+': '+(p.trackingNo||'-')+'</div>';
+  }).join('');
+  document.getElementById('nav-progress').textContent = (navStopIndex + 1) + ' / ' + total;
+  document.getElementById('nav-distance').textContent = 'Jarak: mengira...';
+  document.getElementById('nav-mini-dist').textContent = '--';
+  document.getElementById('nav-waze-btn').onclick = function(){
+    window.open('https://www.waze.com/ul?ll='+stop.lat+','+stop.lng+'&navigate=yes', '_blank');
+  };
+  document.getElementById('nav-gmaps-btn').onclick = function(){
+    window.open('https://www.google.com/maps/dir/?api=1&destination='+stop.lat+','+stop.lng+'&travelmode=driving', '_blank');
+  };
+  document.getElementById('nav-done-btn').onclick = function(){
+    if(stop.parcels){
+      stop.parcels.forEach(function(p){ if(p.status !== 'delivered') p.status = 'delivered'; });
+    }
+    saveLots();
+    navStopIndex++;
+    updateNavPanel();
+    showToast('✅ Ditandakan selesai');
+  };
+  document.getElementById('nav-next-btn').onclick = function(){
+    navStopIndex++;
+    updateNavPanel();
+  };
+  document.getElementById('nav-stop-btn').onclick = function(){
+    stopNavigation();
+    showToast('Navigasi dihentikan');
+  };
+  requestGeoOnce(function(pos){
+    fetchNavDistance(pos.coords.latitude, pos.coords.longitude, stop.lat, stop.lng);
+  }, null, { timeout: 3000 });
+}
+
+function updateNavPosition(pos){
+  var route = optimizedRoute;
+  if(!route || !route.stops || navStopIndex >= route.stops.length) return;
+  var stop = route.stops[navStopIndex];
+  var user = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+  var dist = haversine(user, stop) * 1000;
+  var distStr = dist < 1000 ? Math.round(dist) + 'm' : (dist/1000).toFixed(1)+'km';
+  document.getElementById('nav-distance').textContent = 'Jarak: ' + distStr;
+  document.getElementById('nav-mini-dist').textContent = distStr;
+  if(!navGpsArrow){
+    navGpsArrow = L.marker([user.lat, user.lng], {
+      icon: L.divIcon({ html: '<span style="font-size:24px;">📍</span>', iconSize: [24,24], className: '' })
+    }).addTo(map);
+  }else{
+    navGpsArrow.setLatLng([user.lat, user.lng]);
+  }
+  if(dist <= 50){
+    if(stop.parcels){
+      stop.parcels.forEach(function(p){ if(p.status !== 'delivered') p.status = 'delivered'; });
+    }
+    saveLots();
+    showToast('✅ Sampai di destinasi!');
+    setTimeout(function(){
+      navStopIndex++;
+      updateNavPanel();
+    }, 1500);
+  }
+}
+
+async function fetchNavDistance(fromLat, fromLng, toLat, toLng){
+  try{
+    var url = 'https://router.project-osrm.org/route/v1/driving/'+fromLng+','+fromLat+';'+toLng+','+toLat+'?overview=false';
+    var res = await fetch(url);
+    if(!res.ok) throw new Error('fail');
+    var data = await res.json();
+    if(data.code !== 'Ok' || !data.routes || !data.routes[0]) throw new Error('invalid');
+    var d = data.routes[0].distance;
+    document.getElementById('nav-distance').textContent = 'Jarak: ' + (d < 1000 ? Math.round(d) + 'm' : (d/1000).toFixed(1)+'km');
+  }catch(e){}
+}
+
+document.getElementById('nav-minimize-btn').addEventListener('click', function(){
+  document.getElementById('nav-panel').classList.toggle('expanded');
+});
+document.getElementById('nav-expand').addEventListener('click', function(){
+  document.getElementById('nav-panel').classList.toggle('expanded');
+});
+document.getElementById('nav-close-btn').addEventListener('click', function(){
+  stopNavigation();
+});
+document.getElementById('nav-btn').addEventListener('click', function(){
+  if(!navMode) startNavigation();
+});
+
+/* =============== QUICK ADD PARCEL (Header + Form) =============== */
+function openQuickAdd(){
+  var select = document.getElementById('qa-lot-select');
+  select.innerHTML = '<option value="">-- Pilih lot sedia ada --</option>' + lots.map(function(l){
+    return '<option value="'+l.id+'">'+escapeHtml(l.address)+'</option>';
+  }).join('');
+  document.getElementById('qa-overlay').style.display = 'flex';
+}
+function closeQuickAdd(){
+  document.getElementById('qa-overlay').style.display = 'none';
+  document.getElementById('qa-address').value = '';
+  document.getElementById('qa-recipient').value = '';
+  document.getElementById('qa-tracking').value = '';
+  document.getElementById('qa-lot-select').value = '';
+}
+document.getElementById('quick-add-header-btn').addEventListener('click', openQuickAdd);
+document.getElementById('qa-close-btn').addEventListener('click', closeQuickAdd);
+
+document.getElementById('qa-scan-btn').addEventListener('click', function(){
+  if(!barcodeDetector){ showToast('Barcode Scanner tidak disokong', true); return; }
+  pendingBarcodeInput = document.getElementById('qa-tracking');
+  startBarcodeScan();
+});
+
+document.getElementById('qa-save-btn').addEventListener('click', function(){
+  var address = document.getElementById('qa-address').value.trim();
+  var recipient = document.getElementById('qa-recipient').value.trim();
+  var trackingNo = document.getElementById('qa-tracking').value.trim();
+  var lotSelect = document.getElementById('qa-lot-select');
+  var selectedLotId = lotSelect.value;
+
+  if(selectedLotId){
+    // Add parcel to existing lot
+    var lot = lots.find(function(l){ return l.id === selectedLotId; });
+    if(lot){
+      if(!lot.parcels) lot.parcels = [];
+      lot.parcels.push({ recipient: recipient || '(Tiada nama)', trackingNo: trackingNo || '-', status: 'pending' });
+      saveLots();
+      if(!selectedParcels[lot.id]) selectedParcels[lot.id] = [];
+      selectedParcels[lot.id].push(lot.parcels.length - 1);
+      saveTask();
+      renderAllLotMarkers();
+      renderLotList();
+      renderTaskSelect();
+      updateLotBadge();
+      updateParcelCount();
+      closeQuickAdd();
+      showToast('✅ Parcel ditambah ke lot sedia ada!');
+    }
+    return;
+  }
+
+  if(!address){ showToast('Sila isi alamat atau pilih lot', true); return; }
+
+  showToast('Mencari koordinat...');
+  var url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(address) + '&limit=1';
+  fetch(url, { headers: { 'Accept-Language': 'ms' } })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(!data || !data.length){
+        showToast('Alamat tidak dijumpai di peta', true);
+        return;
+      }
+      var lat = parseFloat(data[0].lat);
+      var lng = parseFloat(data[0].lon);
+      var displayName = data[0].display_name || address;
+      var lot = {
+        id: uid(),
+        name: recipient || '(Tiada nama)',
+        address: displayName,
+        lat: lat,
+        lng: lng,
+        phone: '',
+        notes: '',
+        createdAt: Date.now(),
+        parcels: [{ recipient: recipient || '(Tiada nama)', trackingNo: trackingNo || '-', status: 'pending' }]
+      };
+      lots.push(lot);
+      saveLots();
+      if(!selectedParcels[lot.id]) selectedParcels[lot.id] = [];
+      selectedParcels[lot.id].push(0);
+      saveTask();
+      renderAllLotMarkers();
+      renderLotList();
+      renderTaskSelect();
+      updateLotBadge();
+      updateParcelCount();
+      closeQuickAdd();
+      showToast('✅ Parcel ditambah!');
+    })
+    .catch(function(){
+      showToast('Gagal cari alamat (check internet)', true);
+    });
+});
+
+/* =============== DARK MODE =============== */
+const DARK_KEY = 'jnt_dark_mode_v1';
+function applyDarkMode(on){
+  document.body.classList.toggle('dark', on);
+  document.getElementById('dark-toggle-btn').innerText = on ? '☀️' : '🌙';
+  localStorage.setItem(DARK_KEY, on ? '1' : '0');
+}
+applyDarkMode(localStorage.getItem(DARK_KEY) === '1');
+document.getElementById('dark-toggle-btn').addEventListener('click', ()=>{
+  applyDarkMode(!document.body.classList.contains('dark'));
+});
+
+/* =============== IMPORT / EXPORT =============== */
+document.getElementById('export-btn').addEventListener('click', ()=>{
+  if(lots.length===0){ alert('Tiada data lot rumah untuk dieksport.'); return; }
+  const payload = { exportedAt: new Date().toISOString(), lots };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateStr = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `jnt-lot-rumah-backup-${dateStr}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('import-btn').addEventListener('click', ()=>{
+  document.getElementById('import-file-input').click();
+});
+
+document.getElementById('import-file-input').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt)=>{
+    try{
+      const data = JSON.parse(evt.target.result);
+      const incoming = Array.isArray(data) ? data : data.lots;
+      if(!Array.isArray(incoming)) throw new Error('Format tidak sah');
+
+      const valid = incoming.filter(l => l && typeof l.lat==='number' && typeof l.lng==='number' && l.name);
+      if(valid.length===0){ alert('Fail tiada data lot yang sah.'); return; }
+
+      const mode = confirm(
+        `Jumpa ${valid.length} lot dalam fail.\n\nOK = Gabung dengan data sedia ada\nBatal = Gantikan semua data sedia ada`
+      );
+
+      valid.forEach(l=>{
+        if(!l.id) l.id = uid();
+        if(!l.createdAt) l.createdAt = Date.now();
+        // ensure parcels + status
+        if(!l.parcels) l.parcels = [{ recipient: l.name || '(Tiada nama)', trackingNo: '-', status: 'pending' }];
+        l.parcels.forEach(function(p){ if(!p.status) p.status = 'pending'; });
+      });
+
+      if(mode){
+        const existingIds = new Set(lots.map(l=>l.id));
+        valid.forEach(l=>{ if(!existingIds.has(l.id)) lots.push(l); });
+      }else{
+        lots = valid;
+      }
+      saveLots();
+      renderAllLotMarkers();
+      updateLotBadge();
+      updateParcelCount();
+      renderLotList();
+      alert('✅ Import berjaya!');
+    }catch(err){
+      alert('❌ Fail tidak sah atau rosak. Sila pastikan fail .json yang betul.');
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+/* =============== TABS =============== */
+const tabButtons = document.querySelectorAll('.tab-btn');
+const views = document.querySelectorAll('.view');
+tabButtons.forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    tabButtons.forEach(b=>b.classList.remove('active'));
+    views.forEach(v=>v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.view).classList.add('active');
+    if(btn.dataset.view==='view-lots') renderLotList();
+    if(btn.dataset.view==='view-task') renderTaskSelect();
+    if(btn.dataset.view==='view-route') renderRouteView();
+    if(btn.dataset.view==='view-map') setTimeout(()=>map.invalidateSize(),100);
+  });
+});
+
+/* =============== MAP SETUP (Leaflet + OSM) =============== */
+const map = L.map('map', {zoomControl:false}).setView([3.1390, 101.6869], 13); // default KL
+L.control.zoom({position:'bottomleft'}).addTo(map);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+let lotMarkers = {}; // id -> marker
+let tempPinLatLng = null;
+let tempMarker = null;
+
+function jntIcon(color){
+  return L.divIcon({
+    className:'',
+    html:`<div style="background:${color};width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>`,
+    iconSize:[26,26],
+    iconAnchor:[13,26]
+  });
+}
+
+function getPopupContent(lot){
+  var h = '<b>'+escapeHtml(lot.address)+'</b>';
+  if(lot.phone) h += '<br>📞 '+escapeHtml(lot.phone);
+  if(lot.parcels && lot.parcels.length){
+    h += '<div class="popup-parcels">';
+    var groups = {};
+    lot.parcels.forEach(function(p){
+      var key = p.recipient || '(Tiada nama)';
+      if(!groups[key]) groups[key] = [];
+      groups[key].push(p.trackingNo || '-');
+    });
+    for(var r in groups){
+      var pStat=lot.parcels.find(function(p){return (p.recipient||'(Tiada nama)')===r;});
+      var pill=pStat?statusPill(pStat.status||'pending'):'';
+      h += '<div class="popup-parcel">📦 <b>'+escapeHtml(r)+'</b>: '+groups[r].join(', ')+pill+'</div>';
+    }
+    h += '</div>';
+    h += '<div style="font-size:11px;color:var(--muted);margin-top:4px;">📦 '+lot.parcels.length+' bungkusan</div>';
+  } else {
+    h += '<br>👤 '+escapeHtml(lot.name);
+  }
+  return h;
+}
+
+function renderAllLotMarkers(){
+  Object.values(lotMarkers).forEach(m=>map.removeLayer(m));
+  lotMarkers = {};
+  lots.forEach(lot=>{
+    var col=getColorForStatus(getLotStatus(lot));
+    const m = L.marker([lot.lat, lot.lng], {icon: jntIcon(col)}).addTo(map);
+    m.bindPopup(getPopupContent(lot));
+    lotMarkers[lot.id] = m;
+  });
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.innerText = str || '';
+  return d.innerHTML;
+}
+
+// Try locate user on load
+map.locate({setView:true, maxZoom:15});
+map.on('locationfound', function(e){
+  L.circleMarker(e.latlng, {radius:8, color:'#3b82f6', fillColor:'#3b82f6', fillOpacity:0.6}).addTo(map)
+    .bindPopup('Lokasi anda sekarang');
+});
+map.on('locationerror', function(){
+  if(!isSecureContext()){ showSecureWarning(); return; }
+  showToast('📍 GPS gagal. Pastikan location enabled & cuba luar rumah.', true);
+});
+
+document.getElementById('locate-btn').addEventListener('click', ()=>{
+  if(!isSecureContext()){ showSecureWarning(); return; }
+  map.locate({setView:true, maxZoom:16, timeout:15000});
+});
+
+/* =============== LIVE VIEW (GPS follow while driving) =============== */
+let liveWatchId = null;
+let liveViewActive = false;
+var liveBtn = document.getElementById('live-btn');
+
+liveBtn.addEventListener('click', function(){
+  if(liveViewActive){
+    liveViewActive = false;
+    liveBtn.classList.remove('active');
+    liveBtn.innerText = '🚗';
+    if(liveWatchId !== null){ navigator.geolocation.clearWatch(liveWatchId); liveWatchId = null; }
+    return;
+  }
+  liveViewActive = true;
+  liveBtn.classList.add('active');
+  liveBtn.innerText = '🟢';
+  liveWatchId = requestGeoWatch(function(pos){
+    map.setView([pos.coords.latitude, pos.coords.longitude], 16);
+    if(window._liveMarker) map.removeLayer(window._liveMarker);
+    window._liveMarker = L.circleMarker([pos.coords.latitude, pos.coords.longitude], {
+      radius: 10, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.7
+    }).addTo(map).bindPopup('Lokasi anda sekarang');
+  }, function(){
+    liveViewActive = false;
+    liveBtn.classList.remove('active');
+    liveBtn.innerText = '🚗';
+  }, { enableHighAccuracy: true, timeout: 5000, maximumAge: 3000 });
+});
+
+/* =============== SEARCH LOKASI (Nominatim/OSM - percuma, macam Google Maps) =============== */
+const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
+const searchInput = document.getElementById('search-input');
+const searchResultsEl = document.getElementById('search-results');
+const searchClearBtn = document.getElementById('search-clear-btn');
+const searchSpinner = document.getElementById('search-spinner');
+let searchDebounceTimer = null;
+let searchMarker = null;
+
+searchInput.addEventListener('input', ()=>{
+  const q = searchInput.value.trim();
+  searchClearBtn.style.display = q ? 'block' : 'none';
+  clearTimeout(searchDebounceTimer);
+
+  if(q.length < 3){
+    searchResultsEl.style.display = 'none';
+    searchResultsEl.innerHTML = '';
+    return;
+  }
+
+  searchDebounceTimer = setTimeout(()=> doSearch(q), 450);
+});
+
+searchClearBtn.addEventListener('click', ()=>{
+  searchInput.value = '';
+  searchClearBtn.style.display = 'none';
+  searchResultsEl.style.display = 'none';
+  searchResultsEl.innerHTML = '';
+  searchInput.focus();
+});
+
+async function doSearch(query){
+  searchSpinner.style.display = 'block';
+  try{
+    // Bias hasil carian sekitar kawasan peta semasa
+    const center = map.getCenter();
+    const url = `${NOMINATIM_BASE}/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=6&addressdetails=1&viewbox=${center.lng-1},${center.lat+1},${center.lng+1},${center.lat-1}`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'ms,en' } });
+    const data = await res.json();
+    renderSearchResults(data);
+  }catch(e){
+    searchResultsEl.style.display = 'block';
+    searchResultsEl.innerHTML = '<div class="search-result-empty">❌ Carian gagal. Sila semak sambungan internet.</div>';
+  }finally{
+    searchSpinner.style.display = 'none';
+  }
+}
+
+function renderSearchResults(results){
+  if(!results || results.length===0){
+    searchResultsEl.style.display = 'block';
+    searchResultsEl.innerHTML = '<div class="search-result-empty">Tiada lokasi dijumpai. Cuba kata kunci lain.</div>';
+    return;
+  }
+  searchResultsEl.style.display = 'block';
+  searchResultsEl.innerHTML = results.map((r, i)=>`
+    <div class="search-result-item" data-idx="${i}">
+      <span class="pin">📍</span>
+      <div class="txt">
+        <b>${escapeHtml(r.name || r.display_name.split(',')[0])}</b>
+        <span>${escapeHtml(r.display_name)}</span>
+      </div>
+    </div>
+  `).join('');
+
+  searchResultsEl.querySelectorAll('.search-result-item').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const r = results[parseInt(el.dataset.idx)];
+      goToSearchResult(r);
+    });
+  });
+}
+
+function goToSearchResult(r){
+  const lat = parseFloat(r.lat);
+  const lng = parseFloat(r.lon);
+
+  // sorok senarai hasil carian
+  searchResultsEl.style.display = 'none';
+  searchInput.value = r.name || r.display_name.split(',')[0];
+
+  // terbang peta ke lokasi (macam Google Maps)
+  map.flyTo([lat, lng], 17, {animate:true, duration:1});
+
+  if(searchMarker) map.removeLayer(searchMarker);
+  searchMarker = L.marker([lat, lng], {icon: jntIcon('#2563eb')}).addTo(map);
+  searchMarker.bindPopup(`<b>${escapeHtml(r.display_name.split(',')[0])}</b><br>${escapeHtml(r.display_name)}`).openPopup();
+
+  // buka borang pin terus, pre-isi alamat daripada hasil carian
+  tempPinLatLng = L.latLng(lat, lng);
+  if(tempMarker) map.removeLayer(tempMarker);
+  document.getElementById('pin-coords').innerText = `Koordinat: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  document.getElementById('pin-address').value = r.display_name;
+  document.getElementById('pin-phone').value = '';
+  resetParcelRows(1);
+  pinForm.classList.add('show');
+  mapHint.style.display = 'none';
+}
+
+// Sorok senarai hasil bila tekan di luar kotak carian
+document.getElementById('map').addEventListener('click', ()=>{
+  searchResultsEl.style.display = 'none';
+});
+
+/* Reverse geocode: bila klik peta terus, cuba auto-isi alamat sebenar */
+async function reverseGeocode(lat, lng){
+  try{
+    const url = `${NOMINATIM_BASE}/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'ms,en' } });
+    const data = await res.json();
+    if(data && data.display_name){
+      document.getElementById('pin-address').value = data.display_name;
+    }else{
+      document.getElementById('pin-address').value = '';
+    }
+  }catch(e){
+    // gagal cari alamat automatik - kosongkan placeholder, pengguna taip manual
+    const addrEl = document.getElementById('pin-address');
+    if(addrEl.value === 'Mencari alamat...') addrEl.value = '';
+  }
+}
+
+// Click on map -> open pin form
+const pinForm = document.getElementById('pin-form-floating');
+const mapHint = document.getElementById('map-hint');
+
+map.on('click', function(e){
+  tempPinLatLng = e.latlng;
+  if(tempMarker) map.removeLayer(tempMarker);
+  tempMarker = L.marker(e.latlng, {icon: jntIcon('#16a34a')}).addTo(map);
+  if(searchMarker){ map.removeLayer(searchMarker); searchMarker=null; }
+
+  document.getElementById('pin-coords').innerText =
+    `Koordinat: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+  document.getElementById('pin-address').value = 'Mencari alamat...';
+  document.getElementById('pin-phone').value = '';
+  resetParcelRows(1);
+  pinForm.classList.add('show');
+  mapHint.style.display = 'none';
+  searchResultsEl.style.display = 'none';
+
+  reverseGeocode(e.latlng.lat, e.latlng.lng);
+});
+
+document.getElementById('close-pin-form').addEventListener('click', closePinForm);
+function closePinForm(){
+  pinForm.classList.remove('show');
+  if(tempMarker){ map.removeLayer(tempMarker); tempMarker=null; }
+  if(searchMarker){ map.removeLayer(searchMarker); searchMarker=null; }
+  mapHint.style.display = 'block';
+}
+
+document.getElementById('add-parcel-btn').addEventListener('click', function(){ addParcelRow('',''); });
+
+document.getElementById('save-pin-btn').addEventListener('click', ()=>{
+  const address = document.getElementById('pin-address').value.trim();
+  const phone = document.getElementById('pin-phone').value.trim();
+
+  if(!tempPinLatLng){ alert('Sila tekan lokasi pada peta dahulu.'); return; }
+  if(!address){ alert('Sila isi Alamat/Nota Lot.'); return; }
+
+  const parcelRows = document.querySelectorAll('.parcel-row');
+  const parcels = [];
+  let hasValid = false;
+  parcelRows.forEach(function(row){
+    const rec = row.querySelector('.parcel-recipient').value.trim();
+    const trk = row.querySelector('.parcel-tracking').value.trim();
+    if(rec || trk){
+      parcels.push({ recipient: rec || '(Tiada nama)', trackingNo: trk || '-', status: 'pending' });
+      hasValid = true;
+    }
+  });
+  if(!hasValid){ alert('Sila tambah sekurang-kurangnya satu parcel dengan nama penerima.'); return; }
+
+  const lot = {
+    id: uid(),
+    name: parcels[0].recipient,
+    address, phone,
+    lat: tempPinLatLng.lat,
+    lng: tempPinLatLng.lng,
+    createdAt: Date.now(),
+    parcels: parcels
+  };
+  lots.push(lot);
+  saveLots();
+  renderAllLotMarkers();
+  updateLotBadge();
+  updateParcelCount();
+  closePinForm();
+  alert('✅ Lot rumah "'+address+'" dengan '+parcels.length+' parcel berjaya disimpan!');
+});
+
+function updateLotBadge(){
+  document.getElementById('lot-count-badge').innerText = lots.length + ' Lot';
+}
+
+/* =============== VIEW: LOT LIST =============== */
+function renderLotList(){
+  const container = document.getElementById('lot-list');
+  document.getElementById('stat-total-lots').innerText = lots.length;
+
+  if(lots.length===0){
+    container.innerHTML = '<div class="empty">Belum ada lot rumah disimpan.<br>Pergi ke tab Peta dan klik lokasi untuk pin lot pertama anda.</div>';
+    return;
+  }
+  container.innerHTML = lots.slice().reverse().map(function(lot){
+    var parcelHtml = '';
+    if(lot.parcels && lot.parcels.length){
+      var groups = {};
+      lot.parcels.forEach(function(p){
+        var key = p.recipient || '(Tiada nama)';
+        if(!groups[key]) groups[key] = [];
+        groups[key].push(p.trackingNo || '-');
+      });
+      for(var r in groups){
+        var pStat=lot.parcels.find(function(p){return (p.recipient||'(Tiada nama)')===r;});
+        var pill=(pStat&&pStat.status)?statusPill(pStat.status):'';
+        parcelHtml += '<div style="font-size:12px;">📦 <b>'+escapeHtml(r)+'</b>: '+groups[r].join(', ')+' '+pill+'</div>';
+      }
+    } else {
+      parcelHtml = '<div style="font-size:12px;">👤 '+escapeHtml(lot.name)+'</div>';
+    }
+    return '<div class="card lot-item"><div class="info"><h3>'+escapeHtml(lot.address)+'</h3>'+parcelHtml+(lot.phone?'<p>📞 '+escapeHtml(lot.phone)+'</p>':'')+'</div><div class="actions"><button class="del-btn" onclick="deleteLot(\''+lot.id+'\')">🗑️ Padam</button></div></div>';
+  }).join('');
+}
+
+function deleteLot(id){
+  if(!confirm('Padam lot rumah ini?')) return;
+  lots = lots.filter(l=>l.id!==id);
+  delete selectedParcels[id];
+  saveLots(); saveTask();
+  renderAllLotMarkers();
+  renderLotList();
+  updateLotBadge();
+  updateParcelCount();
+}
+
+/* =============== VIEW: DAILY TASK SELECT (Per-Parcel) =============== */
+let _sortProximityCache={lat:null,lng:null,expiry:0};
+
+function renderTaskSelect(){
+  const container = document.getElementById('task-select-list');
+  if(lots.length===0){
+    container.innerHTML = '<div class="empty">Tiada lot rumah lagi. Sila pin lot dahulu di tab Peta.</div>';
+    return;
+  }
+
+  var sortBy=(document.getElementById('sort-task-select')||{}).value||'date';
+  var sorted=[].concat(lots);
+  var proxCache={};
+  var showDist=false;
+
+  if(sortBy==='name'){
+    sorted.sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
+  }else if(sortBy==='area'){
+    sorted.sort(function(a,b){
+      var aa=(a.address||'').split(',').pop().trim();
+      var ba=(b.address||'').split(',').pop().trim();
+      return aa.localeCompare(ba);
+    });
+  }else if(sortBy==='proximity'){
+    showDist=true;
+    if(Date.now()<_sortProximityCache.expiry&&_sortProximityCache.lat!==null){
+      var clat=_sortProximityCache.lat,clng=_sortProximityCache.lng;
+      sorted.forEach(function(l){proxCache[l.id]=haversine({lat:clat,lng:clng},l);});
+      sorted.sort(function(a,b){return (proxCache[a.id]||0)-(proxCache[b.id]||0);});
+    }else{
+      requestGeoOnce(function(pos){
+        _sortProximityCache={lat:pos.coords.latitude,lng:pos.coords.longitude,expiry:Date.now()+30000};
+        renderTaskSelect();
+      }, null, {timeout:3000});
+      sortBy='date';
+      showDist=false;
+    }
+  }
+
+  var html = '';
+  sorted.forEach(function(lot){
+    var selParcels = selectedParcels[lot.id] || [];
+    var lotChecked = (lot.parcels||[]).length > 0 && selParcels.length === (lot.parcels||[]).filter(function(p){return p.status!=='delivered';}).length;
+    var total = (lot.parcels||[]).length;
+    var rem = (lot.parcels||[]).filter(function(p){return (p.status||'pending')!=='delivered';}).length;
+
+    html += '<div class="checkbox-row"><input type="checkbox" data-id="'+lot.id+'"'+(lotChecked?' checked':'')+' onchange="toggleLot(\''+lot.id+'\', this.checked)"><div class="info"><b>'+escapeHtml(lot.address)+'</b><div><span style="color:var(--jnt-red);font-weight:600;">📦'+rem+'/'+total+'</span></div></div></div>';
+
+    // Each parcel row (indented)
+    (lot.parcels||[]).forEach(function(p, idx){
+      if(p.status==='delivered' && !selParcels.includes(idx)) return; // skip delivered unless selected
+      var checked = selParcels.includes(idx);
+      html += '<div class="parcel-checkbox-row"><input type="checkbox"'+(checked?' checked':'')+' onchange="toggleParcel(\''+lot.id+'\','+idx+', this.checked)"><span>📦 '+escapeHtml(p.recipient||'')+': '+escapeHtml(p.trackingNo||'-')+' '+statusPill(p.status||'pending')+'</span></div>';
+    });
+  });
+  container.innerHTML = html;
+}
+
+function toggleParcel(lotId, idx, checked){
+  if(!selectedParcels[lotId]) selectedParcels[lotId] = [];
+  if(checked){
+    if(!selectedParcels[lotId].includes(idx)) selectedParcels[lotId].push(idx);
+  }else{
+    selectedParcels[lotId] = selectedParcels[lotId].filter(function(i){return i!==idx;});
+  }
+  if(!selectedParcels[lotId].length) delete selectedParcels[lotId];
+  saveTask();
+  renderTaskSelect();
+}
+
+function toggleLot(lotId, checked){
+  var lot = lots.find(function(l){return l.id===lotId;});
+  if(!lot || !lot.parcels) return;
+  if(checked){
+    (lot.parcels||[]).forEach(function(p, idx){
+      if(p.status==='delivered') return;
+      if(!selectedParcels[lotId]) selectedParcels[lotId] = [];
+      if(!selectedParcels[lotId].includes(idx)) selectedParcels[lotId].push(idx);
+    });
+  }else{
+    (lot.parcels||[]).forEach(function(p, idx){
+      if(p.status==='delivered') return;
+      if(selectedParcels[lotId]) selectedParcels[lotId] = selectedParcels[lotId].filter(function(i){return i!==idx;});
+    });
+    if(selectedParcels[lotId] && !selectedParcels[lotId].length) delete selectedParcels[lotId];
+  }
+  saveTask();
+  renderTaskSelect();
+}
+
+/* =============== SELECT ALL / DESELECT ALL / ARCHIVE / SORT =============== */
+document.getElementById('select-all-btn').addEventListener('click',function(){
+  selectedParcels = {};
+  lots.forEach(function(lot){
+    if(!lot.parcels) return;
+    lot.parcels.forEach(function(p, idx){
+      if(p.status==='delivered') return;
+      if(!selectedParcels[lot.id]) selectedParcels[lot.id] = [];
+      selectedParcels[lot.id].push(idx);
+    });
+  });
+  saveTask();
+  renderTaskSelect();
+});
+document.getElementById('deselect-all-btn').addEventListener('click',function(){
+  selectedParcels = {};
+  saveTask();
+  renderTaskSelect();
+});
+document.getElementById('archive-btn').addEventListener('click',function(){
+  if(!confirm('Arkibkan semua parcel yang sudah selesai? Ia akan disembunyikan dari senarai tugasan.')) return;
+  lots.forEach(function(lot){
+    if(lot.parcels) lot.parcels = lot.parcels.filter(function(p){return p.status!=='delivered';});
+  });
+  // Clean up selectedParcels
+  Object.keys(selectedParcels).forEach(function(lotId){
+    var lot = lots.find(function(l){return l.id===lotId;});
+    if(!lot || !lot.parcels || !lot.parcels.length) delete selectedParcels[lotId];
+  });
+  saveLots();
+  saveTask();
+  renderAllLotMarkers();
+  renderLotList();
+  renderTaskSelect();
+  updateLotBadge();
+  updateParcelCount();
+  showToast('✅ Parcel selesai diarkibkan');
+});
+document.getElementById('sort-task-select').addEventListener('change',function(){
+  renderTaskSelect();
+});
+
+/* =============== CYCLE STATUS (tap to update in route view) =============== */
+function cycleStatus(lotId, parcelIdx){
+  var lot=lots.find(function(l){return l.id===lotId;});
+  if(!lot||!lot.parcels[parcelIdx]) return;
+  var cur=lot.parcels[parcelIdx].status||'pending';
+  var next={pending:'in_progress',in_progress:'delivered',delivered:'failed',failed:'pending'};
+  setParcelStatus(lotId, parcelIdx, next[cur]||'pending');
+}
+
+/* =============== ROUTE OPTIMIZATION (Nearest Neighbor) =============== */
+function haversine(a, b){
+  const R = 6371; // km
+  const dLat = (b.lat-a.lat) * Math.PI/180;
+  const dLng = (b.lng-a.lng) * Math.PI/180;
+  const lat1 = a.lat * Math.PI/180;
+  const lat2 = b.lat * Math.PI/180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function nearestNeighborRoute(startPoint, stops, distFn){
+  const remaining = stops.slice();
+  const ordered = [];
+  let current = startPoint;
+  let totalDist = 0;
+
+  while(remaining.length){
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    remaining.forEach((s, idx)=>{
+      const d = distFn(current, s);
+      if(d < bestDist){ bestDist = d; bestIdx = idx; }
+    });
+    const next = remaining.splice(bestIdx,1)[0];
+    totalDist += bestDist;
+    ordered.push({...next, legDistance: bestDist});
+    current = next;
+  }
+  return {ordered, totalDist};
+}
+
+/* ---- OSRM (Open Source Routing Machine) - jarak & laluan jalan sebenar, PERCUMA ---- */
+const OSRM_BASE = 'https://router.project-osrm.org';
+
+async function getOSRMMatrix(points){
+  // points: [{lat,lng}, ...] index 0 = start
+  const coords = points.map(p => `${p.lng},${p.lat}`).join(';');
+  const url = `${OSRM_BASE}/table/v1/driving/${coords}?annotations=distance`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('OSRM table gagal');
+  const data = await res.json();
+  if(data.code !== 'Ok') throw new Error('OSRM table respon tidak sah');
+  return data.distances; // meters matrix [i][j]
+}
+
+async function getOSRMRoute(orderedPoints){
+  // orderedPoints includes start as index 0
+  const coords = orderedPoints.map(p => `${p.lng},${p.lat}`).join(';');
+  const url = `${OSRM_BASE}/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('OSRM route gagal');
+  const data = await res.json();
+  if(data.code !== 'Ok' || !data.routes || !data.routes[0]) throw new Error('OSRM route respon tidak sah');
+  const route = data.routes[0];
+  return {
+    distanceKm: route.distance/1000,
+    durationMin: route.duration/60,
+    geometry: route.geometry.coordinates.map(c => [c[1], c[0]]) // [lng,lat] -> [lat,lng]
+  };
+}
+
+document.getElementById('build-route-btn').addEventListener('click', ()=>{
+  var selectedLotIds = Object.keys(selectedParcels);
+  if(selectedLotIds.length===0){
+    alert('Sila pilih sekurang-kurangnya satu parcel untuk hantaran hari ini.');
+    return;
+  }
+  // Filter stops by selected lots, then filter parcels per stop
+  var stops = lots.filter(function(l){ return selectedLotIds.includes(l.id); }).map(function(l){
+    var cloned = Object.assign({}, l, { parcels: (l.parcels||[]).filter(function(p, idx){ return (selectedParcels[l.id]||[]).includes(idx); }) });
+    return cloned;
+  }).filter(function(l){ return l.parcels && l.parcels.length > 0; });
+
+  if(stops.length===0){ alert('Tiada parcel dipilih.'); return; }
+  const btn = document.getElementById('build-route-btn');
+
+  async function computeFrom(startPoint){
+    btn.disabled = true;
+    btn.innerText = '⏳ Menyusun laluan...';
+
+    let ordered, totalDist, method = 'straight', durationMin = null, geometry = null;
+
+    try{
+      // 1) Cuba dapatkan matrix jarak jalan sebenar dari OSRM
+      const allPoints = [startPoint, ...stops];
+      const distances = await getOSRMMatrix(allPoints); // meters, index-based
+
+      const distFnMatrix = (a, b) => {
+        const i = allPoints.findIndex(p => p === a || (p.lat===a.lat && p.lng===a.lng));
+        const j = allPoints.findIndex(p => p === b || (p.lat===b.lat && p.lng===b.lng));
+        return distances[i][j] / 1000; // km
+      };
+
+      const result = nearestNeighborRoute(startPoint, stops, distFnMatrix);
+      ordered = result.ordered;
+      totalDist = result.totalDist;
+      method = 'osrm-matrix';
+
+      // 2) Dapatkan laluan jalan sebenar (geometry + jarak+masa tepat) ikut susunan
+      try{
+        const routeInfo = await getOSRMRoute([startPoint, ...ordered]);
+        totalDist = routeInfo.distanceKm;
+        durationMin = routeInfo.durationMin;
+        geometry = routeInfo.geometry;
+        method = 'osrm-route';
+      }catch(e2){
+        // guna jarak matrix sahaja, tanpa geometry sebenar
+      }
+
+    }catch(e){
+      // Fallback penuh: guna jarak lurus (haversine) - tetap berfungsi walau offline/OSRM down
+      const result = nearestNeighborRoute(startPoint, stops, haversine);
+      ordered = result.ordered;
+      totalDist = result.totalDist;
+      method = 'straight';
+    }
+
+    optimizedRoute = { start: startPoint, stops: ordered, totalDist, durationMin, geometry, method, createdAt: Date.now() };
+    saveRoute();
+    btn.disabled = false;
+    btn.innerText = '🚀 Susun Laluan Automatik';
+    document.querySelector('[data-view="view-route"]').click();
+  }
+
+  // Try to use current GPS location as starting point
+  requestGeoOnce(function(pos){
+    computeFrom({lat: pos.coords.latitude, lng: pos.coords.longitude, name:'Lokasi Anda Sekarang'});
+  }, function(){
+    computeFrom({lat: stops[0].lat, lng: stops[0].lng, name:'Titik Mula'});
+  }, {timeout:4000});
+});
+
+/* =============== VIEW: ROUTE DISPLAY =============== */
+function renderRouteView(){
+  const listEl = document.getElementById('route-list');
+  const summaryEl = document.getElementById('route-summary');
+  const clearBtn = document.getElementById('clear-route-btn');
+
+  if(!optimizedRoute || !optimizedRoute.stops || optimizedRoute.stops.length===0){
+    listEl.innerHTML = '<div class="empty">Tiada laluan lagi.<br>Pergi ke tab "Tugasan", pilih lot rumah, dan tekan "Susun Laluan Automatik".</div>';
+    summaryEl.style.display='none';
+    clearBtn.style.display='none';
+    document.getElementById('share-route-btn').style.display='none';
+    return;
+  }
+
+  summaryEl.style.display='flex';
+  clearBtn.style.display='block';
+  document.getElementById('share-route-btn').style.display='block';
+  var rDel=0, rTot=0;
+  optimizedRoute.stops.forEach(function(s){
+    if(s.parcels){s.parcels.forEach(function(p){rTot++;if(p.status==='delivered')rDel++;});}
+  });
+  document.getElementById('stat-stops').innerText = optimizedRoute.stops.length;
+  document.getElementById('stat-dist').innerText = optimizedRoute.totalDist.toFixed(1) + ' km';
+  document.getElementById('stat-dist-label').innerText = (optimizedRoute.method && optimizedRoute.method.startsWith('osrm')) ? 'Jarak Jalan Sebenar' : 'Jarak Anggaran (Lurus)';
+  document.getElementById('stat-duration').innerText = optimizedRoute.durationMin ? Math.round(optimizedRoute.durationMin) + ' min' : '-';
+
+  const methodBadge = document.getElementById('route-method-badge');
+  if(optimizedRoute.method === 'osrm-route'){
+    methodBadge.style.display = 'block';
+    methodBadge.innerText = '✅ Guna jarak & laluan jalan sebenar (OSRM). Susunan & jarak adalah tepat berdasarkan jalan raya.';
+  }else if(optimizedRoute.method === 'osrm-matrix'){
+    methodBadge.style.display = 'block';
+    methodBadge.innerText = '✅ Susunan guna jarak jalan sebenar (OSRM). Garisan pada peta adalah anggaran lurus.';
+  }else{
+    methodBadge.style.display = 'block';
+    methodBadge.innerText = '⚠️ OSRM tidak dapat dicapai (mungkin tiada internet). Guna jarak lurus (udara) sebagai anggaran.';
+  }
+
+  // Remaining count line
+  var remCount=rTot-rDel;
+  var routeHtml = '<div class="route-status-summary" style="margin-bottom:10px;">📦 <b>'+rDel+'/'+rTot+'</b> selesai · <b>'+remCount+'</b> baki &nbsp;|&nbsp; Ketik parcel untuk tukar status</div>';
+
+  optimizedRoute.stops.forEach((s, i)=>{
+    const gmapsNav = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}&travelmode=driving`;
+    const osmNav = `https://www.openstreetmap.org/directions?to=${s.lat}%2C${s.lng}`;
+
+    var parcelHtml = '';
+    if(s.parcels && s.parcels.length){
+      var groups = {};
+      s.parcels.forEach(function(p){
+        var key = p.recipient || '(Tiada nama)';
+        if(!groups[key]) groups[key] = [];
+        groups[key].push(p.trackingNo || '-');
+      });
+      for(var r in groups){
+        var pStat=s.parcels.find(function(p){return (p.recipient||'(Tiada nama)')===r;});
+        var pill=(pStat&&pStat.status)?statusPill(pStat.status):'';
+        var pIdx=s.parcels.indexOf(pStat);
+        parcelHtml += '<div style="font-size:11px;cursor:pointer;" onclick="cycleStatus(\''+s.id+'\','+pIdx+')">📦 <b>'+escapeHtml(r)+'</b>: '+groups[r].join(', ')+' '+pill+'</div>';
+      }
+    } else {
+      parcelHtml = '<div style="font-size:11px;">👤 '+escapeHtml(s.name)+'</div>';
+    }
+
+    routeHtml += `
+      <div class="route-step">
+        <div class="num">${i+1}</div>
+        <div class="info">
+          <b>${escapeHtml(s.address || s.name)}</b>
+          <div>📍 ${escapeHtml(s.address || '')}</div>
+          ${s.phone ? `<div>📞 ${escapeHtml(s.phone)}</div>` : ''}
+          ${parcelHtml}
+          <div style="margin-top:4px;">
+            <a class="nav-link" href="${osmNav}" target="_blank">🧭 Navigasi (OSM)</a>
+            &nbsp;|&nbsp;
+            <a class="nav-link" href="${gmapsNav}" target="_blank">🗺️ Google Maps</a>
+          </div>
+        </div>
+        <div class="dist">+${s.legDistance.toFixed(1)}km</div>
+      </div>
+    `;
+  });
+  listEl.innerHTML = routeHtml;
+
+  // draw route on map too (optional visual, only if map view visited)
+  drawRouteOnMap();
+}
+
+document.getElementById('clear-route-btn').addEventListener('click', ()=>{
+  if(!confirm('Kosongkan laluan yang telah disusun?')) return;
+  optimizedRoute = null;
+  saveRoute();
+  renderRouteView();
+});
+
+let routeLine = null;
+function drawRouteOnMap(){
+  if(routeLine){ map.removeLayer(routeLine); routeLine=null; }
+  if(!optimizedRoute) return;
+
+  if(optimizedRoute.geometry && optimizedRoute.geometry.length){
+    // Laluan jalan sebenar dari OSRM
+    routeLine = L.polyline(optimizedRoute.geometry, {color:'#e2231a', weight:5, opacity:0.85}).addTo(map);
+  }else{
+    // Fallback: garis lurus antara titik
+    const pts = [ [optimizedRoute.start.lat, optimizedRoute.start.lng] ];
+    optimizedRoute.stops.forEach(s=> pts.push([s.lat, s.lng]));
+    routeLine = L.polyline(pts, {color:'#e2231a', weight:4, dashArray:'6,6'}).addTo(map);
+  }
+  try{ map.fitBounds(routeLine.getBounds(), {padding:[30,30]}); }catch(e){}
+}
+
+/* =============== SHARE ROUTE VIA WHATSAPP =============== */
+document.getElementById('share-route-btn').addEventListener('click', function(){
+  if(!optimizedRoute||!optimizedRoute.stops||!optimizedRoute.stops.length){
+    return alert('Tiada laluan untuk dikongsi.');
+  }
+  var msg='🛵 *Laluan Hantaran Hari Ini*\n';
+  msg+='📦 '+optimizedRoute.stops.length+' perhentian\n';
+  msg+='📍 Jarak: '+optimizedRoute.totalDist.toFixed(1)+' km\n';
+  var sd=0,sp=0;
+  optimizedRoute.stops.forEach(function(s){
+    if(s.parcels) s.parcels.forEach(function(p){
+      if(p.status==='delivered') sd++; else sp++;
+    });
+  });
+  msg+='✅ '+sd+' selesai · ⏳ '+sp+' baki\n\n';
+  optimizedRoute.stops.forEach(function(s,i){
+    msg+=(i+1)+'. '+s.address+'\n';
+    if(s.parcels) s.parcels.forEach(function(p){
+      msg+='   📦 '+(p.recipient||'(?)')+': '+(p.trackingNo||'-')+'\n';
+    });
+    msg+='   🗺️ https://www.google.com/maps/dir/?api=1&destination='+s.lat+','+s.lng+'\n';
+  });
+  var encoded=encodeURIComponent(msg);
+  window.open('https://wa.me/?text='+encoded,'_blank');
+});
+
+/* =============== GEOFENCE TOGGLE =============== */
+document.getElementById('geofence-btn').addEventListener('click', function(){
+  if(geofenceActive){ stopGeofence(); showToast('⭕ Geofence dimatikan'); }
+  else{ startGeofence(); }
+});
+
+/* =============== SERVICE WORKER REGISTRATION (PWA) =============== */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(function(){});
+}
+
+/* =============== INIT =============== */
+renderAllLotMarkers();
+updateLotBadge();
+updateParcelCount();
+renderLotList();
+renderTaskSelect();
+renderRouteView();
+</script>
+</body>
+</html>
